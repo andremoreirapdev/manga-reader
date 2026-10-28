@@ -52,3 +52,5 @@ dist/
 # Credenciais de assinatura devem permanecer fora do upload e do Git.
 credentials.json
 *.keystore
+
+.tmp/

@@ -77,6 +77,11 @@ export default function Library() {
       <Text style={styles.heading}>Sua biblioteca offline</Text>
       <Text style={styles.muted}>Importe um CBZ e continue de onde parou.</Text>
       <Button title="Importar CBZ" disabled={busy} onPress={() => void add()} />
+      <Button
+        title="Explorar MangaDex"
+        disabled={busy}
+        onPress={() => router.push("/catalog")}
+      />
       {busy && (
         <View>
           <ActivityIndicator />

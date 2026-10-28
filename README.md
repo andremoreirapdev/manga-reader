@@ -1,6 +1,6 @@
 # MangaReader — primeira etapa offline
 
-Aplicativo pessoal exclusivamente Android. Expo SDK 58, React Native 0.88, React 19.3, TypeScript estrito, Expo Router, SQLite e arquivos privados. Sem backend ou MangaDex.
+Aplicativo pessoal exclusivamente Android. Expo SDK 58, React Native 0.88, React 19.3, TypeScript estrito, Expo Router, SQLite e arquivos privados. Sem backend. A etapa inicial do catálogo MangaDex está disponível, com busca e metadados de capítulos.
 
 ## Executar no Windows
 
@@ -167,3 +167,43 @@ Build EAS concluído com status FINISHED na conta pessoal `andremoreirap`, perfi
 - APK: https://expo.dev/artifacts/eas/Yv0YKA-CEUIK23mrL64_z9G9UIhY0CBC8Tp13T2P-lY.apk
 
 O projeto local foi vinculado por `extra.eas.projectId` no app.json. A assinatura Android foi gerada e é gerenciada pelo EAS. A compilação foi confirmada; a instalação e a validação offline deste APK no celular continuam pendentes. Para outra compilação, execute `npm run build:apk` com a mesma conta e chave.
+
+
+## MVP 2 — catálogo MangaDex (primeira etapa)
+
+O APK 0.1.0 testado pelo usuário confirmou a instalação e leitura offline, incluindo o modo vertical. A etapa atual adiciona consulta online ao catálogo; o leitor e a biblioteca de CBZs continuam locais.
+
+### Testar no Android
+
+```powershell
+npm ci
+npx expo start --go
+```
+
+1. Na biblioteca, toque em **Explorar MangaDex**.
+2. Digite pelo menos dois caracteres e toque em **Buscar**. A pesquisa não dispara a cada tecla.
+3. Abra um título e confira capa, sinopse e capítulos. Há preferência automática por PT-BR quando esse idioma consta dos metadados; caso contrário, inglês ou todos os idiomas. Os filtros permitem trocar manualmente.
+4. Use **Carregar mais** nos resultados e capítulos para verificar a paginação.
+5. Tente consultar outro título sem conexão e confira a mensagem de erro e o botão de tentar novamente.
+6. Volte à biblioteca e confira a leitura dos CBZs importados. Nenhum login MangaDex é necessário para estes endpoints públicos.
+
+O APK gerado anteriormente não incorpora alterações locais automaticamente. Após validar esta etapa no Expo Go, uma nova compilação com `npm run build:apk` incluirá o catálogo no aplicativo independente.
+
+### Arquivos e decisões
+
+- `src/types/manga-source.ts`: contrato `MangaSource` e modelos independentes da API.
+- `src/services/mangadex/source.ts`: cliente oficial HTTP, mapeamento e validação de respostas, paginação e controle de requisições.
+- `src/providers/remote.ts`: fonte e cache do TanStack Query, compatível com React 19; nenhuma nova dependência nativa.
+- `app/catalog/`: busca, detalhes e capítulos; estilos e capa em `src/features/catalog/`.
+- `tests/mangadex.test.ts`: respostas, idioma, paginação, cancelamento, HTTP 403/429 e falhas de rede.
+- `scripts/check-mangadex.ts`: verificação opcional de metadados na API real, executada com `npx tsx scripts/check-mangadex.ts`.
+
+As requisições são serializadas com intervalo mínimo de um segundo, User-Agent descritivo e timeout de 20 segundos. HTTP 429 ativa a pausa informada nos cabeçalhos, sem repetição automática. HTTP 403 é apresentado como recusa de acesso; não há scraping, proxy ou contorno de bloqueios. A consulta de capítulos omite links externos e capítulos futuros. Busca usa as classificações safe e suggestive. A UI credita MangaDex e exibe grupos de tradução quando informados; capas indisponíveis recebem placeholder.
+
+O TanStack Query conserva resultados em memória por até 30 minutos de inatividade, com validade de cinco minutos e repetição automática desabilitada. Esse cache não persiste ao fechar o app nem torna o catálogo disponível offline. Segredos e credenciais não são necessários nesta etapa.
+
+Referência consultada: [OpenAPI oficial MangaDex 5.13.1](https://api.mangadex.org/docs/api.yaml). A política exige créditos à fonte e aos grupos quando houver leitura, e proíbe anúncios/serviços pagos. Neste incremento, há somente consulta de títulos e metadados; leitura remota, download e armazenamento de capítulos serão a próxima etapa.
+
+Verificação real executada: busca de `Yotsuba&!`, detalhes de `Yotsuba to!` e primeira página de capítulos PT-BR (50 resultados, total 170 no momento da consulta). Não foram baixadas páginas de capítulos. TypeScript e os 16 testes passaram. A integração de rede no celular ainda precisa de validação pelo usuário.
+
+O bundle Hermes Android desta etapa também foi gerado com sucesso (`npx expo export --platform android`, 1.271 módulos). Isso valida o empacotamento JavaScript; o APK anterior continua sendo a versão offline sem o novo catálogo.

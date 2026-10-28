@@ -50,3 +50,5 @@ dist/
 # Credenciais locais de assinatura Android
 credentials.json
 *.keystore
+
+.tmp/
