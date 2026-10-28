@@ -127,9 +127,13 @@ export async function runChapterDownload(
 
       for (let attempt = 0; attempt < 3; attempt++) {
         checkCanceled(signal);
-        const waiting = now();
-        await wait(attempt === 0 ? 1000 : attempt * 2000, signal);
-        observePause(now() - waiting);
+
+        if (attempt > 0) {
+          const waiting = now();
+          await wait(attempt * 2000, signal);
+          observePause(now() - waiting);
+        }
+
         onProgress({
           phase: "downloading",
           completed: index,

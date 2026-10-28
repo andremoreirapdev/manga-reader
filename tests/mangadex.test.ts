@@ -208,3 +208,26 @@ test("relatório dispensa domínio próprio e detecta recusa HTTP do servidor pa
   await assert.rejects(source.reportPage!({ ...report, url: "https://node.example/1.png" }), /não aceitou/);
   assert.equal(calls, 1);
 });
+
+test("relatório identifica timeout de 5 segundos", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const source = createMangaDexSource(async (_url, options) => {
+    return new Promise<Response>((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    });
+  }, 0);
+  const result = assert.rejects(source.reportPage!({
+    url: "https://node.example/1.png", bytes: 123, duration: 20, success: true, cached: false,
+  }), { name: "ReportTimeoutError" });
+  context.mock.timers.tick(5000);
+  await result;
+});
+
+test("relatório distingue falha de conexão de timeout", async () => {
+  const source = createMangaDexSource(async () => {
+    throw new TypeError("Network request failed");
+  }, 0);
+  await assert.rejects(source.reportPage!({
+    url: "https://node.example/1.png", bytes: 123, duration: 20, success: true, cached: false,
+  }), { name: "ReportNetworkError" });
+});

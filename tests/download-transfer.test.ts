@@ -25,6 +25,85 @@ function sink() {
   };
 }
 
+test("lê metadados nativos uma única vez e mede também a preparação do stream", async (context) => {
+  let clock = 100;
+  context.mock.method(Date, "now", () => clock);
+  const calls = { url: 0, status: 0, headers: 0, body: 0 };
+  const measured = new Map<string, number>();
+  const payload = new Response(new Uint8Array(3));
+  const headers = new Headers({ "content-type": "image/png", "content-length": "3" });
+  const file = sink();
+  const count = await receivePage(
+    "https://node.example/image",
+    new AbortController().signal,
+    100,
+    async () => ({
+      get url() {
+        calls.url++;
+        clock += 1000;
+
+        return "https://node.example/image";
+      },
+      get status() {
+        calls.status++;
+        clock += 1000;
+
+        return 200;
+      },
+      get headers() {
+        calls.headers++;
+        clock += 2000;
+
+        return headers;
+      },
+      get body() {
+        calls.body++;
+        clock += 500;
+
+        return payload.body;
+      },
+      get ok(): boolean {
+        throw new Error("ok repete acesso ao status nativo; use o snapshot");
+      },
+    }),
+    file.open,
+    () => {},
+    undefined,
+    (stage, duration) => measured.set(stage, (measured.get(stage) ?? 0) + duration),
+  );
+  assert.equal(count, 3);
+  assert.deepEqual(calls, { url: 1, status: 1, headers: 1, body: 1 });
+  assert.equal(measured.get("metadataMs"), 4000);
+  assert.equal(measured.get("bodySetupMs"), 500);
+  assert.equal(measured.get("headersMs"), 0);
+});
+
+test("mede criação de arquivo e enfileiramento antes ausentes do diagnóstico", async (context) => {
+  let clock = 100;
+  context.mock.method(Date, "now", () => clock);
+  const measured = new Map<string, number>();
+  const count = await receivePage(
+    "https://node.example/image",
+    new AbortController().signal,
+    100,
+    async () => new Response(new Uint8Array(3), {
+      headers: { "content-type": "image/png" },
+    }),
+    () => {
+      clock += 700;
+
+      return { async write() {}, close() {} };
+    },
+    () => {},
+    async () => { clock += 5000; },
+    (stage, duration) => measured.set(stage, (measured.get(stage) ?? 0) + duration),
+  );
+  assert.equal(count, 3);
+  assert.equal(measured.get("fileOpenMs"), 700);
+  assert.equal(measured.get("reportEnqueueMs"), 5000);
+  assert.equal(measured.get("headersMs"), 0);
+});
+
 test("transfere em blocos para disco e relata bytes e cache do servidor", async () => {
   const file = sink();
   const reports: PageReport[] = [];

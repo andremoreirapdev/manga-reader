@@ -43,14 +43,23 @@ const source = {
 
 test("download integrado publica páginas, dimensões e créditos e evita duplicação", async () => {
   const h = await nativeDownloadHarness();
+  let reportCalls = 0;
 
   try {
-    const manager = h.createManager(h.db, source);
+    const manager = h.createManager(h.db, {
+      ...source,
+      async reportPage() { reportCalls++; },
+    });
     await manager.start(request);
     const job = manager.getSnapshot().jobs[chapterId];
     assert.equal(job.status, "completed", job.error ?? "");
     assert.match(job.diagnostics ?? "", /Tentativas de página: 2/);
     assert.match(job.diagnostics ?? "", /Servidor.*Gravação/s);
+    assert.match(job.diagnostics ?? "", /Processamento completo das páginas:/);
+    assert.match(job.diagnostics ?? "", /Criação\/abertura:/);
+    assert.equal(reportCalls, 2, "deve enviar um relatório para cada página recebida");
+    assert.match(job.diagnostics ?? "", /Relatórios: ativados\./);
+    assert.match(job.diagnostics ?? "", /2 páginas em buffer nativo/);
     const book = h.sqlite.prepare("SELECT * FROM books").get();
     assert.equal(book?.sourceChapterId, chapterId);
     assert.match(String(book?.credits), /MangaDex.*Equipe de teste/);
@@ -62,6 +71,7 @@ test("download integrado publica páginas, dimensões e créditos e evita duplic
     assert.ok(h.files.has(String(book?.cover)));
     assert.ok(![...h.files.keys()].some((name) => name.endsWith(".part")));
     await manager.start(request);
+    assert.equal(reportCalls, 2, "capítulo já salvo não deve gerar novos envios");
     assert.equal(
       h.sqlite.prepare("SELECT COUNT(*) AS count FROM books").get()?.count,
       1,

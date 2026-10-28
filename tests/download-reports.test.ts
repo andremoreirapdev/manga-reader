@@ -123,3 +123,25 @@ test("tentativa cancelada também relata os bytes já recebidos e libera o arqui
   assert.equal(reports[0].success, false);
   assert.equal(reports[0].bytes, 3);
 });
+
+test("diagnóstico distingue timeout, HTTP e conexão sem expor URLs dos erros", async () => {
+  const errors = [
+    Object.assign(new Error("https://private.example/token"), { name: "ReportTimeoutError" }),
+    Object.assign(new Error("https://private.example/token"), { status: 503 }),
+    Object.assign(new Error("https://private.example/token"), { name: "ReportNetworkError" }),
+    new Error("https://private.example/token"),
+  ];
+  const reasons: string[] = [];
+  const queue = createReportQueue(async () => {
+    throw errors.shift();
+  }, (_stage, _duration, failed, reason) => {
+    if (failed && reason) reasons.push(reason);
+  });
+
+  for (let index = 0; index < 4; index++) {
+    await queue.enqueue(report);
+  }
+
+  await queue.drain();
+  assert.deepEqual(reasons.sort(), ["Conexão/rede", "Falha não identificada", "HTTP 503", "Tempo limite (5 s)"].sort());
+});

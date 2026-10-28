@@ -127,6 +127,8 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
         );
       },
       async writePage(index, page, signal, maxBytes, onBytes) {
+        const preparingFiles = Date.now();
+
         if (!/^(png|jpe?g|webp)$/.test(page.extension))
           throw new DownloadError("Formato de página não suportado.");
 
@@ -135,6 +137,7 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
         const final = new File(dirs.staging, name);
 
         if (partial.exists) partial.delete();
+        observe("filePrepareMs", Date.now() - preparingFiles);
 
         try {
           observe("attempts", 1);
@@ -155,6 +158,7 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
             onBytes,
             report,
             observe,
+            "prefer-native-buffer",
           );
           const validating = Date.now();
           let dimensions;
@@ -327,15 +331,20 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
     let registered = false;
     const started = Date.now();
     const timings: Record<string, number> = {};
+    const reportFailures = new Map<string, number>();
     const observe = (stage: string, milliseconds: number) => {
       timings[stage] = (timings[stage] ?? 0) + milliseconds;
     };
     const reports = createReportQueue(
       source.reportPage ? (report) => source.reportPage!(report) : undefined,
-      (stage, milliseconds, failed) => {
+      (stage, milliseconds, failed, reason) => {
         observe(stage, milliseconds);
 
-        if (failed) observe("failedReports", 1);
+        if (failed) {
+          observe("failedReports", 1);
+          const label = reason ?? "Falha não identificada";
+          reportFailures.set(label, (reportFailures.get(label) ?? 0) + 1);
+        }
       },
     );
     const measuredSource: MangaSource = {
@@ -388,12 +397,26 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
       registered = true;
       updateJob(job);
       let lastUpdate = 0;
+      const storage = storageFor(job, reports.enqueue, observe);
+      const measuredStorage: ChapterStorage = {
+        ...storage,
+        async writePage(...args) {
+          const startedPage = Date.now();
+
+          try {
+            return await storage.writePage(...args);
+          } finally {
+            observe("pageMs", Date.now() - startedPage);
+          }
+        },
+      };
       const bookId = await runChapterDownload(
         request,
         measuredSource,
-        storageFor(job, reports.enqueue, observe),
+        measuredStorage,
         signal,
         (progress) => {
+          const updating = Date.now();
           const important =
             progress.phase !== job.phase ||
             progress.completed !== job.completed;
@@ -407,6 +430,8 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
             lastUpdate = Date.now();
             updateJob(job);
           }
+
+          observe("progressMs", Date.now() - updating);
         },
         undefined,
         undefined,
@@ -452,13 +477,23 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
 
       if (registered) {
         const seconds = (key: string) => ((timings[key] ?? 0) / 1000).toFixed(1);
+        const elapsed = Date.now() - started;
+        const pageStages = ["headersMs", "metadataMs", "bodySetupMs", "readMs", "writeMs", "cleanupMs", "fileOpenMs", "filePrepareMs", "reportEnqueueMs", "validationMs", "savingMs"];
+        const pageDetails = pageStages.reduce((sum, key) => sum + (timings[key] ?? 0), 0);
         const diagnostics = [
-          `Tempo total: ${((Date.now() - started) / 1000).toFixed(1)} s · Tentativas de página: ${timings.attempts ?? 0}`,
+          `Tempo total: ${(elapsed / 1000).toFixed(1)} s · Tentativas de página: ${timings.attempts ?? 0}`,
           `Servidor (até cabeçalhos): ${seconds("headersMs")} s · Recebimento: ${seconds("readMs")} s`,
+          `Leitura de metadados da resposta: ${seconds("metadataMs")} s · Preparação do stream: ${seconds("bodySetupMs")} s`,
+          `Método de leitura: ${timings.nativeBufferPages ?? 0} páginas em buffer nativo (até 4 MiB) · ${timings.streamPages ?? 0} páginas em stream JS`,
           `Gravação: ${seconds("writeMs")} s · Validação: ${seconds("validationMs")} s · Arquivos/banco: ${seconds("savingMs")} s`,
           `Fechamento da transferência: ${seconds("cleanupMs")} s · Publicação: ${seconds("publishMs")} s`,
+          `Preparação dos arquivos: ${seconds("filePrepareMs")} s · Criação/abertura: ${seconds("fileOpenMs")} s · Enfileiramento de relatórios: ${seconds("reportEnqueueMs")} s`,
+          `Processamento completo das páginas: ${seconds("pageMs")} s (inclui transferência, arquivos e enfileiramento) · Atualizações de progresso: ${seconds("progressMs")} s (podem ocorrer dentro das páginas)`,
+          `Outros tempos dentro das páginas: ${(Math.max(0, (timings.pageMs ?? 0) - pageDetails) / 1000).toFixed(1)} s · Tempo fora das páginas: ${(Math.max(0, elapsed - (timings.pageMs ?? 0)) / 1000).toFixed(1)} s (inclui preparação, consultas, pausas e finalização)`,
           `Consulta à fonte: ${seconds("manifestMs")} s · Pausas: ${seconds("pauseMs")} s`,
           `Relatórios em paralelo: ${seconds("reportMs")} s · Espera da fila: ${seconds("reportWaitMs")} s · Finalização da fila: ${seconds("reportDrainMs")} s · Falhas: ${timings.failedReports ?? 0}`,
+          "Relatórios: ativados.",
+          `Causas das falhas de relatório: ${Array.from(reportFailures, ([reason, count]) => `${reason}: ${count}`).join(" · ") || "nenhuma"}`,
           "Os tempos dos relatórios se sobrepõem ao download; não devem ser somados ao total.",
         ].join("\n");
         job = { ...job, diagnostics };

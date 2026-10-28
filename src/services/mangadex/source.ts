@@ -349,6 +349,17 @@ export function createMangaDexSource(
         if (!response.ok) {
           throw new SourceError("O servidor não aceitou o relatório da página.", response.status);
         }
+      } catch (error) {
+        if (error instanceof SourceError) throw error;
+
+        const failure = new Error(
+          controller.signal.aborted
+            ? "O envio do relatório excedeu o tempo limite de 5 segundos."
+            : "Falha de conexão ao enviar o relatório.",
+        );
+        failure.name = controller.signal.aborted ? "ReportTimeoutError" : "ReportNetworkError";
+
+        throw failure;
       } finally {
         clearTimeout(timeout);
       }

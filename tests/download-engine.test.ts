@@ -41,7 +41,7 @@ const manifest: ChapterPages = {
 };
 const noWait = async () => {};
 
-test("diagnóstico mede pausas sem mudar o intervalo entre páginas", async () => {
+test("páginas bem-sucedidas não inserem pausas artificiais", async () => {
   const { storage, source } = setup();
   let clock = 0;
   const pauses: number[] = [];
@@ -49,7 +49,8 @@ test("diagnóstico mede pausas sem mudar o intervalo entre páginas", async () =
     () => {}, async (milliseconds) => { clock += milliseconds; },
     () => clock, (milliseconds) => pauses.push(milliseconds),
   );
-  assert.deepEqual(pauses, [1000, 1000]);
+  assert.deepEqual(pauses, []);
+  assert.equal(clock, 0);
 });
 
 function setup() {
@@ -176,6 +177,9 @@ test("cancelamento entre páginas faz limpeza e não publica", async () => {
 test("limita a três tentativas e não mistura revisões de capítulos", async () => {
   const { storage, source, events } = setup();
   let attempts = 0;
+  let clock = 0;
+  const waits: number[] = [];
+  const measured: number[] = [];
   storage.writePage = async () => {
     attempts++;
     throw new DownloadError("Sem rede", true);
@@ -187,11 +191,18 @@ test("limita a três tentativas e não mistura revisões de capítulos", async (
       storage,
       new AbortController().signal,
       () => {},
-      noWait,
+      async (milliseconds) => {
+        waits.push(milliseconds);
+        clock += milliseconds;
+      },
+      () => clock,
+      (milliseconds) => measured.push(milliseconds),
     ),
     /Sem rede/,
   );
   assert.equal(attempts, 3);
+  assert.deepEqual(waits, [2000, 4000]);
+  assert.deepEqual(measured, waits);
   let requests = 0;
   source.getChapterPages = async () => ({
     ...manifest,
