@@ -207,3 +207,32 @@ Referência consultada: [OpenAPI oficial MangaDex 5.13.1](https://api.mangadex.o
 Verificação real executada: busca de `Yotsuba&!`, detalhes de `Yotsuba to!` e primeira página de capítulos PT-BR (50 resultados, total 170 no momento da consulta). Não foram baixadas páginas de capítulos. TypeScript e os 16 testes passaram. A integração de rede no celular ainda precisa de validação pelo usuário.
 
 O bundle Hermes Android desta etapa também foi gerado com sucesso (`npx expo export --platform android`, 1.271 módulos). Isso valida o empacotamento JavaScript; o APK anterior continua sendo a versão offline sem o novo catálogo.
+
+## Tela inicial — biblioteca para celular
+
+A biblioteca usa lista vertical de cards, com capa, título, quantidade de páginas, posição atual e barra de progresso. O item em andamento acessado mais recentemente recebe o destaque “Continuar leitura”. A posição corresponde à página salva, não a uma confirmação de que todas as páginas anteriores foram lidas. O filtro “Em leitura” usa páginas intermediárias: primeira e última páginas não recebem esse estado, já que o esquema atual não registra início/finalização explícitos.
+
+Recursos da tela:
+
+- Busca local por título, ignorando acentos e diferenças de maiúsculas/minúsculas.
+- Filtros Todos e Em leitura, com contagem.
+- Ordenação por último acesso ou título A–Z, pelo ícone ao lado dos filtros.
+- Botão Importar no topo; após importar, a busca/filtro são limpos para mostrar o novo item.
+- Toque no card para abrir o leitor. Menu de três pontos para abrir ou remover, com confirmação e preservação do CBZ original.
+- Navegação inferior Biblioteca/Explorar (MangaDex). Não há abas de downloads ou histórico sem implementação.
+- Estado vazio com orientação de importação, busca sem resultados, erro, carregamento e fallback de capa.
+- Área segura do Android respeitada no topo e rodapé; lista permanece vertical também em telas maiores.
+
+Arquivos: `app/index.tsx`, componentes e seletores em `src/features/library/`, testes em `tests/library-selectors.test.ts`. Nenhuma dependência, migração de banco ou comportamento do leitor foi adicionado nesta mudança. O download de capítulos continua pendente.
+
+Validação executada: TypeScript, 20 testes e bundle Hermes Android passaram. Não há lint configurado no projeto. A aparência e a interação final precisam ser conferidas no celular:
+
+```powershell
+npx expo start --go
+```
+
+Confira biblioteca vazia, cards com títulos longos, busca por acentos, filtro Em leitura, ordenação, importação, menu de remoção e navegação para o catálogo. O APK já instalado não recebe essa alteração automaticamente; uma nova compilação será necessária para incorporar o layout fora do Expo Go.
+
+### Menus da biblioteca
+
+Menu do item, ordenação e confirmação de remoção usam o componente `src/features/library/LibraryActionSheet.tsx`, com painel inferior escuro, ações de remoção em vermelho e indicação da ordenação selecionada. Toque fora, botão Fechar/Cancelar ou Voltar do Android fecham o painel. O fluxo de confirmação permanece obrigatório antes de apagar um item. Não há novas dependências.
