@@ -47,3 +47,6 @@ dist/
 
 /PRIMEIRO_PROMPT.md
 /AGENTS.md
+# Credenciais locais de assinatura Android
+credentials.json
+*.keystore

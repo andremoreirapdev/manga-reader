@@ -4,11 +4,27 @@
     "slug": "manga-reader",
     "version": "0.1.0",
     "scheme": "mangareader",
-    "platforms": ["android"],
+    "platforms": [
+      "android"
+    ],
     "android": {
       "package": "com.andre.mangareader",
       "allowBackup": false
     },
-    "plugins": ["expo-router", "expo-sqlite", "expo-image"]
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-image"
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "030aee56-0be6-40c4-b019-811de5a66006"
+      }
+    }
   }
 }

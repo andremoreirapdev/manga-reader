@@ -127,3 +127,43 @@ Teste no celular com `npx expo start --go`:
 6. Teste também um CBZ com alturas diferentes ou imagens longas, e gire o celular.
 
 Validação desta mudança: TypeScript e 10 testes passaram (incluindo dimensões de imagens, cálculo de posições e retenção/liberação do cache). Os testes do cache simulam a fronteira nativa; a interação por rolagem e o consumo real de memória dependem de validação no Android.
+
+## Gerar APK independente com EAS Build
+
+O perfil `preview` em `eas.json` produz um APK Android de distribuição interna, com JavaScript embutido e `developmentClient: false`. Ele funciona sem Expo Go, sem Metro e sem o computador. A compilação é feita nos servidores Expo e exige conta Expo autenticada e conexão à internet durante o build. Não publica o app na Play Store. Referência: https://docs.expo.dev/build-reference/apk/
+
+O projeto fixa o EAS CLI 26.0.0 no comando abaixo. No PowerShell, dentro da pasta do projeto:
+
+```powershell
+npx eas-cli@26.0.0 login
+npm run build:apk
+```
+
+Na primeira execução:
+
+1. Se solicitado, aceite criar/vincular o projeto `manga-reader` à sua conta Expo. A associação pode adicionar `extra.eas.projectId` ao `app.json`.
+2. Para a primeira chave Android, aceite gerar um novo Android Keystore. O EAS gerenciará a assinatura; reutilize a mesma chave nas próximas versões para atualizar o app instalado.
+3. Aguarde o build terminar. O terminal mostrará o endereço do build no painel Expo.
+4. Abra o link no celular, baixe e instale o APK. Se o Android solicitar, autorize a instalação para o navegador utilizado.
+
+Não inclua chaves/senhas em arquivos versionados. `.easignore` exclui cache npm, bundles locais e CBZs de teste do envio ao EAS, além das credenciais locais.
+
+### Validar o APK offline
+
+O APK tem armazenamento separado do Expo Go: os mangás importados no Expo Go não aparecem automaticamente nele. Os CBZs originais em Downloads continuam disponíveis para importar.
+
+1. Abra o MangaReader instalado pelo APK e importe o CBZ de teste de Downloads.
+2. Feche o app, encerre o Metro no computador e ative modo avião no celular.
+3. Abra novamente pelo ícone MangaReader. Confira biblioteca, leitura nos dois modos e restauração de progresso.
+4. Ainda sem internet, importe outro CBZ que já esteja em Downloads e confirme a remoção de um item.
+
+Estado desta etapa: perfil e comandos preparados. A geração efetiva do APK e a instalação precisam ser confirmadas após autenticação e conclusão do build EAS. Os testes bem-sucedidos informados pelo usuário até aqui foram feitos no Expo Go.
+
+### Primeiro APK concluído
+
+Build EAS concluído com status FINISHED na conta pessoal `andremoreirap`, perfil `preview`, versão 0.1.0 (1), pacote `com.andre.mangareader`.
+
+- Painel: https://expo.dev/accounts/andremoreirap/projects/manga-reader/builds/8b04e35b-7cb8-4f9e-a9ac-332ed4c4e531
+- APK: https://expo.dev/artifacts/eas/Yv0YKA-CEUIK23mrL64_z9G9UIhY0CBC8Tp13T2P-lY.apk
+
+O projeto local foi vinculado por `extra.eas.projectId` no app.json. A assinatura Android foi gerada e é gerenciada pelo EAS. A compilação foi confirmada; a instalação e a validação offline deste APK no celular continuam pendentes. Para outra compilação, execute `npm run build:apk` com a mesma conta e chave.

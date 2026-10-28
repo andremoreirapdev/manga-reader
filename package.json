@@ -32,6 +32,7 @@
     "typecheck": "tsc --noEmit",
     "start": "expo start --dev-client",
     "android": "expo run:android",
+    "build:apk": "npx eas-cli@26.0.0 build --platform android --profile preview",
     "test": "tsx --test tests/*.test.ts",
     "fixture": "tsx scripts/create-fixture.ts"
   },
