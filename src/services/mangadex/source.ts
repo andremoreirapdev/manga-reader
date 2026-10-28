@@ -64,6 +64,7 @@ export function mapChapterPages(value: unknown): ChapterPages {
 
 export class SourceError extends Error {
   readonly status?: number;
+  retryAt?: number;
 
   constructor(message: string, status?: number) {
     super(message);
@@ -347,7 +348,21 @@ export function createMangaDexSource(
         });
 
         if (!response.ok) {
-          throw new SourceError("O servidor não aceitou o relatório da página.", response.status);
+          const failure = new SourceError("O servidor não aceitou o relatório da página.", response.status);
+
+          if (response.status === 429) {
+            const retry = response.headers.get("retry-after");
+            const seconds = retry === null ? NaN : Number(retry);
+            const timestamp = retry ? Date.parse(retry) : NaN;
+            const reset = Number(response.headers.get("x-ratelimit-retry-after"));
+            failure.retryAt = Math.max(Date.now() + 1000,
+              Number.isFinite(seconds) ? Date.now() + seconds * 1000
+                : Number.isFinite(timestamp) ? timestamp
+                  : reset > 0 ? reset * 1000 : Date.now() + 60000,
+            );
+          }
+
+          throw failure;
         }
       } catch (error) {
         if (error instanceof SourceError) throw error;

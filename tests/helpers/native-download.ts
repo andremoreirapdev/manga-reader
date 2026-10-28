@@ -10,7 +10,7 @@ import {
 } from "../../src/features/downloads/engine.ts";
 import { validateDownloadedImage } from "../../src/features/downloads/validation.ts";
 import { receivePage } from "../../src/services/downloads/transfer.ts";
-import { createReportQueue } from "../../src/services/downloads/reports.ts";
+import { createReportOutbox } from "../../src/services/downloads/report-outbox.ts";
 import type { createDownloadManager } from "../../src/services/downloads/manager.ts";
 import type { PageFetcher } from "../../src/services/downloads/transfer.ts";
 
@@ -29,6 +29,7 @@ export async function nativeDownloadHarness(
         "content-length": String(png.length),
       },
     }),
+  reportSchedule: (callback: () => void, milliseconds: number) => () => void = () => () => {},
 ) {
   const files = new Map<string, Uint8Array>();
   const directories = new Set<string>(["file:///private"]);
@@ -215,7 +216,10 @@ export async function nativeDownloadHarness(
     },
     "../../features/downloads/validation": { validateDownloadedImage },
     "./transfer": { receivePage },
-    "./reports": { createReportQueue },
+    "./report-outbox": {
+      createReportOutbox: (...args: Parameters<typeof createReportOutbox>) =>
+        createReportOutbox(args[0], args[1], args[2], { schedule: reportSchedule }),
+    },
   };
 
   const module = {

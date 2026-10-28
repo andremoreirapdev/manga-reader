@@ -21,13 +21,16 @@ export function DownloadsProvider({ children }: { children: ReactNode }) {
   const [manager] = useState(() => createDownloadManager(db, mangaSource));
 
   useEffect(() => {
+    manager.setReportsActive(AppState.currentState === "active");
     void manager.initialize().catch(() => {});
     const listener = AppState.addEventListener("change", (state) => {
+      manager.setReportsActive(state === "active");
       if (state === "background") manager.cancel("interrupted");
     });
 
     return () => {
       listener.remove();
+      manager.setReportsActive(false);
       manager.cancel("interrupted");
     };
   }, [manager]);

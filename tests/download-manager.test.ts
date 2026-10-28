@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { nativeDownloadHarness } from "./helpers/native-download.ts";
+import { nativeDownloadHarness, png } from "./helpers/native-download.ts";
 import type { DownloadRequest } from "../src/features/downloads/engine.ts";
 import type { MangaSource } from "../src/types/manga-source.ts";
 
@@ -41,6 +41,53 @@ const source = {
   },
 } as unknown as MangaSource;
 
+test("dois capítulos concluem mesmo com envio de relatório sem resposta", { timeout: 3000 }, async () => {
+  const startedReport = Promise.withResolvers<void>();
+  const releaseReport = Promise.withResolvers<void>();
+  let pages = 0;
+  let calls = 0;
+  const h = await nativeDownloadHarness(async () => {
+    pages++;
+
+    if (pages === 2) await startedReport.promise;
+
+    return new Response(png, { headers: { "content-type": "image/png", "content-length": String(png.length) } });
+  }, (callback, milliseconds) => {
+    const timer = setTimeout(callback, milliseconds);
+
+    return () => clearTimeout(timer);
+  });
+  h.sqlite.prepare("INSERT INTO page_reports(source,chapterId,payload,nextAttemptAt) VALUES ('mangadex','previous',?,0)").run(
+    JSON.stringify({ url: "https://test.example/failed.png", success: false, bytes: 0, duration: 100, cached: false }),
+  );
+  const manager = h.createManager(h.db, {
+    ...source,
+    async reportPage() {
+      calls++;
+      startedReport.resolve();
+      await releaseReport.promise;
+    },
+  });
+
+  try {
+    await manager.start(request);
+    assert.equal(manager.getSnapshot().jobs[chapterId].status, "completed");
+    assert.equal(manager.getSnapshot().reports?.active, true);
+    assert.equal(calls, 1);
+    const second = { ...request, chapter: { ...request.chapter, id: "33333333-3333-4333-8333-333333333333" } };
+    await manager.start(second);
+    assert.equal(manager.getSnapshot().jobs[second.chapter.id].status, "completed");
+    assert.equal(h.sqlite.prepare("SELECT COUNT(*) AS count FROM books").get()?.count, 2);
+    assert.equal(h.sqlite.prepare("SELECT COUNT(*) AS count FROM page_reports").get()?.count, 1);
+    assert.equal(calls, 1);
+  } finally {
+    manager.setReportsActive(false);
+    releaseReport.resolve();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    h.sqlite.close();
+  }
+});
+
 test("download integrado publica páginas, dimensões e créditos e evita duplicação", async () => {
   const h = await nativeDownloadHarness();
   let reportCalls = 0;
@@ -57,8 +104,9 @@ test("download integrado publica páginas, dimensões e créditos e evita duplic
     assert.match(job.diagnostics ?? "", /Servidor.*Gravação/s);
     assert.match(job.diagnostics ?? "", /Processamento completo das páginas:/);
     assert.match(job.diagnostics ?? "", /Criação\/abertura:/);
-    assert.equal(reportCalls, 2, "deve enviar um relatório para cada página recebida");
-    assert.match(job.diagnostics ?? "", /Relatórios: ativados\./);
+    assert.equal(reportCalls, 0, "concluir download não deve depender do envio remoto");
+    assert.equal(h.sqlite.prepare("SELECT COUNT(*) AS count FROM page_reports").get()?.count, 0);
+    assert.match(job.diagnostics ?? "", /apenas capítulos com falha/);
     assert.match(job.diagnostics ?? "", /2 páginas em buffer nativo/);
     const book = h.sqlite.prepare("SELECT * FROM books").get();
     assert.equal(book?.sourceChapterId, chapterId);
@@ -71,7 +119,8 @@ test("download integrado publica páginas, dimensões e créditos e evita duplic
     assert.ok(h.files.has(String(book?.cover)));
     assert.ok(![...h.files.keys()].some((name) => name.endsWith(".part")));
     await manager.start(request);
-    assert.equal(reportCalls, 2, "capítulo já salvo não deve gerar novos envios");
+    assert.equal(reportCalls, 0);
+    assert.equal(h.sqlite.prepare("SELECT COUNT(*) AS count FROM page_reports").get()?.count, 0);
     assert.equal(
       h.sqlite.prepare("SELECT COUNT(*) AS count FROM books").get()?.count,
       1,
@@ -155,17 +204,55 @@ test("cancelar transferência ativa fecha a tentativa sem publicar biblioteca", 
   });
 
   try {
-    const manager = h.createManager(h.db, source);
+    const manager = h.createManager(h.db, { ...source, async reportPage() {} });
     const downloading = manager.start(request);
     await started;
     manager.cancel();
     await downloading;
     assert.equal(manager.getSnapshot().jobs[chapterId].status, "cancelled");
+    assert.equal(h.sqlite.prepare("SELECT COUNT(*) AS count FROM page_reports").get()?.count, 0);
     assert.equal(h.files.size, 0);
     assert.equal(
       h.sqlite.prepare("SELECT COUNT(*) AS count FROM books").get()?.count,
       0,
     );
+  } finally {
+    h.sqlite.close();
+  }
+});
+
+test("capítulo com falha terminal registra apenas as tentativas de imagem que falharam", async () => {
+  const h = await nativeDownloadHarness(async () => new Response("", { status: 503 }));
+
+  try {
+    const manager = h.createManager(h.db, { ...source, async reportPage() {} });
+    await manager.start(request);
+    assert.equal(manager.getSnapshot().jobs[chapterId].status, "failed");
+    const rows = h.sqlite.prepare("SELECT payload FROM page_reports").all();
+    assert.equal(rows.length, 3);
+    assert.ok(rows.every((row) => JSON.parse(String(row.payload)).success === false));
+    assert.equal(h.sqlite.prepare("SELECT COUNT(*) AS count FROM books").get()?.count, 0);
+  } finally {
+    h.sqlite.close();
+  }
+});
+
+test("falha recuperada durante a repetição não gera relatório para capítulo concluído", async () => {
+  let calls = 0;
+  const h = await nativeDownloadHarness(async () => {
+    calls++;
+
+    if (calls === 1) return new Response("", { status: 503 });
+
+    return new Response(png, { headers: { "content-type": "image/png", "content-length": String(png.length) } });
+  });
+
+  try {
+    const manager = h.createManager(h.db, { ...source, async reportPage() {} });
+    await manager.start(request);
+    assert.equal(manager.getSnapshot().jobs[chapterId].status, "completed");
+    assert.equal(calls, 3);
+    assert.equal(h.sqlite.prepare("SELECT COUNT(*) AS count FROM page_reports").get()?.count, 0);
   } finally {
     h.sqlite.close();
   }

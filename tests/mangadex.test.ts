@@ -231,3 +231,15 @@ test("relatório distingue falha de conexão de timeout", async () => {
     url: "https://node.example/1.png", bytes: 123, duration: 20, success: true, cached: false,
   }), { name: "ReportNetworkError" });
 });
+
+test("relatório HTTP 429 informa prazo solicitado para a fila persistente", async () => {
+  const started = Date.now();
+  const source = createMangaDexSource(async () => new Response("", {
+    status: 429, headers: { "Retry-After": "120" },
+  }), 0);
+  await assert.rejects(source.reportPage!({
+    url: "https://node.example/1.png", bytes: 123, duration: 20, success: true, cached: false,
+  }), (error) => error instanceof Error && "status" in error && error.status === 429 &&
+    "retryAt" in error && typeof error.retryAt === "number" && error.retryAt >= started + 120000,
+  );
+});

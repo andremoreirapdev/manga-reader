@@ -2,7 +2,7 @@ import { Directory, File, FileMode, Paths } from "expo-file-system";
 import { fetch as expoFetch } from "expo/fetch";
 import * as Crypto from "expo-crypto";
 import type { SQLiteDatabase } from "expo-sqlite";
-import type { MangaSource } from "../../types/manga-source";
+import type { MangaSource, PageReport } from "../../types/manga-source";
 import {
   runChapterDownload,
   DownloadError,
@@ -13,7 +13,7 @@ import {
 } from "../../features/downloads/engine";
 import { validateDownloadedImage } from "../../features/downloads/validation";
 import { receivePage } from "./transfer";
-import { createReportQueue } from "./reports";
+import { createReportOutbox, type ReportQueueState } from "./report-outbox";
 
 export type DownloadStatus =
   | "downloading"
@@ -36,6 +36,7 @@ export type DownloadSnapshot = {
   jobs: Record<string, DownloadJob>;
   error: string | null;
   lastJob?: DownloadJob | null;
+  reports?: ReportQueueState;
 };
 type DownloadRow = {
   chapterId: string;
@@ -71,6 +72,10 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
   let initializedOnce = false;
   let controller: AbortController | null = null;
   let cancelReason: "cancelled" | "interrupted" = "cancelled";
+  let reportsAllowed = true;
+  const reportOutbox = createReportOutbox(db, source, (reports) => {
+    update({ ...snapshot, reports });
+  });
 
   function cancellationStatus(): "cancelled" | "interrupted" {
     return cancelReason;
@@ -293,6 +298,8 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
             .at(-1);
       initializedOnce = true;
       update({ ...snapshot, ready: true, error: null, jobs, lastJob });
+
+      if (reportsAllowed) await reportOutbox.resume();
     })()
       .catch((error) => {
         update({
@@ -331,22 +338,10 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
     let registered = false;
     const started = Date.now();
     const timings: Record<string, number> = {};
-    const reportFailures = new Map<string, number>();
+    const failedReports: PageReport[] = [];
     const observe = (stage: string, milliseconds: number) => {
       timings[stage] = (timings[stage] ?? 0) + milliseconds;
     };
-    const reports = createReportQueue(
-      source.reportPage ? (report) => source.reportPage!(report) : undefined,
-      (stage, milliseconds, failed, reason) => {
-        observe(stage, milliseconds);
-
-        if (failed) {
-          observe("failedReports", 1);
-          const label = reason ?? "Falha não identificada";
-          reportFailures.set(label, (reportFailures.get(label) ?? 0) + 1);
-        }
-      },
-    );
     const measuredSource: MangaSource = {
       ...source,
       async getChapterPages(id, signal) {
@@ -397,14 +392,20 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
       registered = true;
       updateJob(job);
       let lastUpdate = 0;
-      const storage = storageFor(job, reports.enqueue, observe);
+      const storage = storageFor(job, async (report) => {
+        if (source.reportPage && report.success === false) failedReports.push(report);
+      }, observe);
       const measuredStorage: ChapterStorage = {
         ...storage,
         async writePage(...args) {
           const startedPage = Date.now();
 
           try {
-            return await storage.writePage(...args);
+            const page = await storage.writePage(...args);
+            // Uma página recuperada não deve gerar relatório se o capítulo concluir.
+            failedReports.length = 0;
+
+            return page;
           } finally {
             observe("pageMs", Date.now() - startedPage);
           }
@@ -452,6 +453,17 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
             : String(error),
       };
 
+      if (job.status === "failed") {
+        for (const report of failedReports) {
+          try {
+            await reportOutbox.enqueue(job.chapterId, report);
+            observe("reportsQueued", 1);
+          } catch {
+            observe("reportPersistFailures", 1);
+          }
+        }
+      }
+
       if (registered) {
         try {
           await db.runAsync(
@@ -471,10 +483,6 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
 
       updateJob(job, false);
     } finally {
-      const draining = Date.now();
-      await reports.drain();
-      observe("reportDrainMs", Date.now() - draining);
-
       if (registered) {
         const seconds = (key: string) => ((timings[key] ?? 0) / 1000).toFixed(1);
         const elapsed = Date.now() - started;
@@ -491,10 +499,8 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
           `Processamento completo das páginas: ${seconds("pageMs")} s (inclui transferência, arquivos e enfileiramento) · Atualizações de progresso: ${seconds("progressMs")} s (podem ocorrer dentro das páginas)`,
           `Outros tempos dentro das páginas: ${(Math.max(0, (timings.pageMs ?? 0) - pageDetails) / 1000).toFixed(1)} s · Tempo fora das páginas: ${(Math.max(0, elapsed - (timings.pageMs ?? 0)) / 1000).toFixed(1)} s (inclui preparação, consultas, pausas e finalização)`,
           `Consulta à fonte: ${seconds("manifestMs")} s · Pausas: ${seconds("pauseMs")} s`,
-          `Relatórios em paralelo: ${seconds("reportMs")} s · Espera da fila: ${seconds("reportWaitMs")} s · Finalização da fila: ${seconds("reportDrainMs")} s · Falhas: ${timings.failedReports ?? 0}`,
-          "Relatórios: ativados.",
-          `Causas das falhas de relatório: ${Array.from(reportFailures, ([reason, count]) => `${reason}: ${count}`).join(" · ") || "nenhuma"}`,
-          "Os tempos dos relatórios se sobrepõem ao download; não devem ser somados ao total.",
+          `Relatórios: apenas capítulos com falha · ${timings.reportsQueued ?? 0} falhas de imagem registradas · Falhas ao registrar: ${timings.reportPersistFailures ?? 0}`,
+          "O tempo total termina ao concluir o download e não aguarda o envio dos relatórios.",
         ].join("\n");
         job = { ...job, diagnostics };
         console.info("[Download]", job.status, diagnostics);
@@ -516,6 +522,12 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
     },
     initialize,
     start,
+    setReportsActive(active: boolean) {
+      reportsAllowed = active;
+
+      if (!active) reportOutbox.pause();
+      else if (snapshot.ready) void reportOutbox.resume();
+    },
     cancel(reason: "cancelled" | "interrupted" = "cancelled") {
       if (!controller || snapshot.active?.phase === "saving") return;
 

@@ -8,8 +8,10 @@ import {
 import { useState } from "react";
 import { useDownloads } from "../../providers/downloads";
 
-function DownloadDiagnostics({ value }: { value: string }) {
+function DownloadDiagnostics({ value, label = "Ver diagnóstico do download" }: { value: string; label?: string }) {
   const [expanded, setExpanded] = useState(false);
+  const { snapshot } = useDownloads();
+  const reports = snapshot.reports;
 
   return (
     <>
@@ -20,11 +22,22 @@ function DownloadDiagnostics({ value }: { value: string }) {
         style={styles.action}
       >
         <Text style={styles.actionText}>
-          {expanded ? "Ocultar diagnóstico" : "Ver diagnóstico do download"}
+          {expanded ? "Ocultar diagnóstico" : label}
         </Text>
       </Pressable>
       {expanded && (
-        <Text selectable style={styles.muted}>{value}</Text>
+        <>
+          <Text selectable style={styles.muted}>{value}</Text>
+          {reports && (
+            <Text selectable style={styles.muted}>
+              Relatórios (fila atual): {reports.pending} pendentes · {reports.failed} sem novas tentativas · {reports.sent} enviados nesta sessão.
+              {reports.active ? " Enviando…" : reports.paused ? " Pausada até o app ficar ativo." : ""}
+              {!reports.paused && !reports.active && reports.nextAttemptAt != null
+                ? ` Próxima verificação: ${new Date(reports.nextAttemptAt).toLocaleTimeString("pt-BR")}.` : ""}
+              {reports.lastError ? ` Última falha: ${reports.lastError}.` : ""}
+            </Text>
+          )}
+        </>
       )}
     </>
   );
@@ -54,7 +67,18 @@ export function DownloadBanner() {
   if (!job) {
     const last = snapshot.lastJob;
 
-    if (!last) return null;
+    if (!last) {
+      if (!snapshot.reports || snapshot.reports.pending + snapshot.reports.failed === 0) return null;
+
+      return (
+        <View style={styles.card}>
+          <DownloadDiagnostics
+            label="Ver diagnóstico dos relatórios"
+            value="Os relatórios salvos no dispositivo não impedem a leitura dos capítulos disponíveis offline."
+          />
+        </View>
+      );
+    }
 
     return (
       <View style={styles.card}>
