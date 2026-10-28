@@ -45,5 +45,5 @@ package/
 *.tgz
 dist/
 
-./PRIMEIRO_PROMPT.md
-./AGENTS.md
+/PRIMEIRO_PROMPT.md
+/AGENTS.md
