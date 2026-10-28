@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { listBooks, type Book } from "../src/storage/database";
 import { importBook, removeBook } from "../src/services/library";
+
 export default function Library() {
   const db = useSQLiteContext();
   const [books, setBooks] = useState<Book[]>([]);
@@ -26,11 +27,13 @@ export default function Library() {
       setError(String(e));
     }
   }, [db]);
+
   useFocusEffect(
     useCallback(() => {
       void refresh();
     }, [refresh]),
   );
+
   async function add() {
     setBusy(true);
     setError("");
@@ -43,6 +46,7 @@ export default function Library() {
       setBusy(false);
     }
   }
+
   function remove(book: Book) {
     Alert.alert(
       "Remover da biblioteca?",
@@ -67,19 +71,20 @@ export default function Library() {
       ],
     );
   }
+
   return (
-    <View style={s.screen}>
-      <Text style={s.heading}>Sua biblioteca offline</Text>
-      <Text style={s.muted}>Importe um CBZ e continue de onde parou.</Text>
+    <View style={styles.screen}>
+      <Text style={styles.heading}>Sua biblioteca offline</Text>
+      <Text style={styles.muted}>Importe um CBZ e continue de onde parou.</Text>
       <Button title="Importar CBZ" disabled={busy} onPress={() => void add()} />
       {busy && (
         <View>
           <ActivityIndicator />
-          <Text style={s.muted}>Validando arquivo e páginas…</Text>
+          <Text style={styles.muted}>Validando arquivo e páginas…</Text>
         </View>
       )}
       {!!error && (
-        <Text accessibilityRole="alert" style={s.error}>
+        <Text accessibilityRole="alert" style={styles.error}>
           {error}
         </Text>
       )}
@@ -87,12 +92,12 @@ export default function Library() {
         data={books}
         keyExtractor={(b) => b.id}
         ListEmptyComponent={
-          <Text style={s.muted}>Nenhum mangá importado.</Text>
+          <Text style={styles.muted}>Nenhum mangá importado.</Text>
         }
         renderItem={({ item }) => (
-          <View style={s.card}>
+          <View style={styles.card}>
             <Pressable
-              style={s.row}
+              style={styles.row}
               disabled={busy}
               onPress={() =>
                 router.push({
@@ -108,11 +113,11 @@ export default function Library() {
                 cachePolicy="disk"
               />
               <View style={{ flex: 1 }}>
-                <Text style={s.title}>{item.title}</Text>
-                <Text style={s.muted}>
+                <Text style={styles.title}>{item.title}</Text>
+                <Text style={styles.muted}>
                   {item.pages} páginas · página {item.page + 1}
                 </Text>
-                <Text style={s.muted}>
+                <Text style={styles.muted}>
                   {new Date(item.accessed).toLocaleString("pt-BR")}
                 </Text>
               </View>
@@ -128,7 +133,8 @@ export default function Library() {
     </View>
   );
 }
-const s = StyleSheet.create({
+
+const styles = StyleSheet.create({
   screen: { flex: 1, padding: 20, gap: 16 },
   heading: { color: "#fff", fontSize: 24, fontWeight: "700" },
   muted: { color: "#aab7cc", marginVertical: 8 },

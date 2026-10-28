@@ -6,40 +6,43 @@ import {
   Button,
   PanResponder,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from "react-native";
 import { Image } from "expo-image";
-import type { Book } from "../../src/storage/database";
 import { pageUri } from "../../src/services/library";
+import { VerticalReader } from "../../src/features/reader/VerticalReader";
+import type { Book } from "../../src/storage/database";
+
 export default function Reader() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useSQLiteContext();
   const dimensions = useWindowDimensions();
-  const [book, setBook] = useState<Book | null>(null),
-    [uri, setUri] = useState(""),
-    [error, setError] = useState(""),
-    [loading, setLoading] = useState(true);
-  const [imageRatio, setImageRatio] = useState(1.5);
+  const [book, setBook] = useState<Book | null>(null);
+  const [uri, setUri] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
-  const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const [verticalTarget, setVerticalTarget] = useState(0);
+  const writes = useRef<Promise<unknown>>(Promise.resolve());
+
   useEffect(() => {
     let active = true;
     db.getFirstAsync<Book>("SELECT * FROM books WHERE id = ?", id)
-      .then((b) => {
-        if (active) {
-          if (!b) {
-            setError("Item não encontrado.");
-            setLoading(false);
-          } else setBook(b);
+      .then((value) => {
+        if (!active) return;
+        if (!value) {
+          setError("Item não encontrado.");
+          setLoading(false);
+          return;
         }
+        setBook(value);
       })
-      .catch((e) => {
+      .catch((error) => {
         if (active) {
-          setError(String(e));
+          setError(String(error));
           setLoading(false);
         }
       });
@@ -47,37 +50,52 @@ export default function Reader() {
       active = false;
     };
   }, [db, id]);
+
+  // A fila mantém a ordem das gravações mesmo durante rolagem rápida.
+  useEffect(() => {
+    if (!book) return;
+    const { id, page, mode } = book;
+    writes.current = writes.current
+      .then(() =>
+        db.runAsync(
+          "UPDATE books SET page = ?, mode = ?, accessed = ? WHERE id = ?",
+          page,
+          mode,
+          Date.now(),
+          id,
+        ),
+      )
+      .catch((error) =>
+        setError(`Não foi possível salvar o progresso: ${String(error)}`),
+      );
+  }, [db, book?.id, book?.page, book?.mode]);
+
   useEffect(() => {
     if (!book) return;
     let active = true;
-    setLoading(true);
-    setError("");
     setUri("");
-    async function load() {
-      try {
-        const next = await pageUri(book!.id, book!.page);
-        await db.runAsync(
-          "UPDATE books SET page = ?, mode = ?, accessed = ? WHERE id = ?",
-          book!.page,
-          book!.mode,
-          Date.now(),
-          book!.id,
-        );
-        if (active) {
-          setUri(next);
-          scroll.current?.scrollTo({ y: 0, animated: false });
-        }
-      } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (active) setLoading(false);
-      }
+    setError("");
+    if (book.mode === "vertical") {
+      setLoading(false);
+      return;
     }
-    void load();
+    setLoading(true);
+    pageUri(book.id, book.page)
+      .then((uri) => {
+        if (active) setUri(uri);
+      })
+      .catch((error) => {
+        if (active)
+          setError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
-  }, [book, db, retry]);
+  }, [book?.id, book?.mode, book?.mode === "paged" ? book.page : null, retry]);
+
   function move(delta: number) {
     if (loading) return;
     setBook((b) =>
@@ -85,7 +103,9 @@ export default function Reader() {
         ? { ...b, page: Math.max(0, Math.min(b.pages - 1, b.page + delta)) }
         : b,
     );
+    setVerticalTarget((n) => n + 1);
   }
+
   const pan = PanResponder.create({
     onMoveShouldSetPanResponder: (_, g) =>
       book?.mode === "paged" &&
@@ -95,17 +115,17 @@ export default function Reader() {
       if (Math.abs(g.dx) > 45) move(g.dx > 0 ? 1 : -1);
     },
   });
-  const height = Math.max(180, dimensions.height - 230);
+
   return (
-    <View style={s.screen}>
-      <Text style={s.text}>{book?.title}</Text>
-      <View style={s.toolbar}>
+    <View style={styles.screen}>
+      <Text style={styles.text}>{book?.title}</Text>
+      <View style={styles.toolbar}>
         <Button
           title="← Próxima"
           disabled={loading || !book || book.page >= book.pages - 1}
           onPress={() => move(1)}
         />
-        <Text style={s.text}>
+        <Text style={styles.text}>
           {book ? `${book.page + 1} / ${book.pages}` : ""}
         </Text>
         <Button
@@ -116,7 +136,9 @@ export default function Reader() {
       </View>
       <Button
         title={
-          book?.mode === "vertical" ? "Modo: vertical" : "Modo: página a página"
+          book?.mode === "vertical"
+            ? "Modo: vertical contínuo"
+            : "Modo: página a página"
         }
         disabled={!book || loading}
         onPress={() =>
@@ -128,7 +150,7 @@ export default function Reader() {
       {loading && <ActivityIndicator />}
       {!!error && (
         <View>
-          <Text accessibilityRole="alert" style={s.text}>
+          <Text accessibilityRole="alert" style={styles.text}>
             {error}
           </Text>
           <Button
@@ -148,7 +170,7 @@ export default function Reader() {
               setError("Não foi possível decodificar esta imagem.")
             }
           />
-          <View style={s.overlay}>
+          <View style={styles.overlay}>
             <Pressable
               accessibilityLabel="Próxima página"
               style={{ flex: 1 }}
@@ -162,31 +184,23 @@ export default function Reader() {
           </View>
         </View>
       )}
-      {uri && book?.mode === "vertical" && (
-        <ScrollView ref={scroll}>
-          <Image
-            source={uri}
-            style={{
-              width: "100%",
-              height: Math.max(height, (dimensions.width - 24) * imageRatio),
-            }}
-            contentFit="contain"
-            cachePolicy="none"
-            onLoad={(event) => {
-              const { width, height: h } = event.source;
-              if (width > 0) setImageRatio(h / width);
-            }}
-            onError={() =>
-              setError("Não foi possível decodificar esta imagem.")
-            }
-          />
-          <Text style={s.text}>Use “Próxima” ao terminar esta página.</Text>
-        </ScrollView>
+      {book?.mode === "vertical" && (
+        <VerticalReader
+          key={`${book.id}-${verticalTarget}`}
+          id={book.id}
+          count={book.pages}
+          initialPage={book.page}
+          width={Math.max(1, dimensions.width - 24)}
+          onPage={(page) =>
+            setBook((b) => (b && b.page !== page ? { ...b, page } : b))
+          }
+        />
       )}
     </View>
   );
 }
-const s = StyleSheet.create({
+
+const styles = StyleSheet.create({
   screen: { flex: 1, padding: 12, gap: 10 },
   toolbar: {
     flexDirection: "row",

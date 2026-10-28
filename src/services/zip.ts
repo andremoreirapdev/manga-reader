@@ -10,13 +10,17 @@ export type Entry = {
   flags: number;
   limit: number;
 };
+
 export type Read = (offset: number, length: number) => Uint8Array;
+
 const MAX_PAGE = 24 * 1024 * 1024;
 const fail = (): never => {
   throw new Error("CBZ inválido, corrompido ou fora dos limites suportados.");
 };
+
 const view = (b: Uint8Array) =>
   new DataView(b.buffer, b.byteOffset, b.byteLength);
+
 export function safePath(name: string) {
   return (
     !!name &&
@@ -25,24 +29,30 @@ export function safePath(name: string) {
     !name.split("/").some((p) => p === ".." || p === ".")
   );
 }
+
 export function indexZip(read: Read, length: number): Entry[] {
   if (length < 22 || length > 2 * 1024 ** 3) return fail();
+
   const start = Math.max(0, length - 65557),
     tail = read(start, length - start),
     t = view(tail);
+
   let end = -1;
-  for (let i = tail.length - 22; i >= 0; i--)
-    if (
-      t.getUint32(i, true) === 0x06054b50 &&
-      i + 22 + t.getUint16(i + 20, true) === tail.length
-    ) {
-      end = i;
-      break;
-    }
+  for (let i = tail.length - 22; i >= 0; i--) {
+      if (
+        t.getUint32(i, true) === 0x06054b50 &&
+        i + 22 + t.getUint16(i + 20, true) === tail.length
+      ) {
+        end = i;
+        break;
+      }
+  }
   if (end < 0) return fail();
+
   const count = t.getUint16(end + 10, true),
     bytes = t.getUint32(end + 12, true),
     offset = t.getUint32(end + 16, true);
+
   if (
     t.getUint16(end + 4, true) ||
     t.getUint16(end + 6, true) ||
@@ -50,26 +60,31 @@ export function indexZip(read: Read, length: number): Entry[] {
     count > 10000 ||
     bytes > 8 * 1024 ** 2 ||
     offset + bytes !== start + end
-  )
-    return fail();
+  ) return fail();
+
   const central = read(offset, bytes),
     d = view(central),
     entries: Entry[] = [],
     names = new Set<string>();
-  let p = 0,
-    total = 0;
+
+  let p = 0, total = 0;
+
   for (let n = 0; n < count; n++) {
     if (p + 46 > bytes || d.getUint32(p, true) !== 0x02014b50) return fail();
+
     const flags = d.getUint16(p + 8, true),
       method = d.getUint16(p + 10, true),
       crc = d.getUint32(p + 16, true),
       compressed = d.getUint32(p + 20, true),
       size = d.getUint32(p + 24, true);
+
     const nl = d.getUint16(p + 28, true),
       extra = d.getUint16(p + 30, true),
       comment = d.getUint16(p + 32, true),
       local = d.getUint32(p + 42, true);
+
     if (p + 46 + nl + extra + comment > bytes) return fail();
+
     const name = strFromU8(central.subarray(p + 46, p + 46 + nl));
     if (
       !safePath(name) ||
@@ -78,8 +93,8 @@ export function indexZip(read: Read, length: number): Entry[] {
       d.getUint16(p + 34, true) ||
       ((d.getUint32(p + 38, true) >>> 16) & 0xf000) === 0xa000 ||
       local + 30 > offset
-    )
-      return fail();
+    ) return fail();
+
     if (/\.(jpe?g|png|webp)$/i.test(name) && !name.startsWith("__MACOSX/")) {
       if (
         names.has(name) ||
@@ -89,8 +104,8 @@ export function indexZip(read: Read, length: number): Entry[] {
         compressed === 0 ||
         size / compressed > 300 ||
         local + 30 + compressed > offset
-      )
-        return fail();
+      ) return fail();
+
       names.add(name);
       total += size;
       if (total > 4 * 1024 ** 3 || entries.length >= 5000) return fail();
@@ -105,9 +120,12 @@ export function indexZip(read: Read, length: number): Entry[] {
         limit: offset,
       });
     }
+
     p += 46 + nl + extra + comment;
   }
+
   if (p !== bytes || !entries.length) return fail();
+
   return entries.sort((a, b) =>
     a.name.localeCompare(b.name, "en", {
       numeric: true,
@@ -115,6 +133,7 @@ export function indexZip(read: Read, length: number): Entry[] {
     }),
   );
 }
+
 export function crc32(bytes: Uint8Array) {
   let c = 0xffffffff;
   for (const byte of bytes) {
@@ -123,6 +142,7 @@ export function crc32(bytes: Uint8Array) {
   }
   return (c ^ 0xffffffff) >>> 0;
 }
+
 export function extractPage(read: Read, e: Entry): Uint8Array {
   const h = view(read(e.offset, 30));
   if (
@@ -134,8 +154,10 @@ export function extractPage(read: Read, e: Entry): Uint8Array {
   const nl = h.getUint16(26, true),
     extra = h.getUint16(28, true);
   if (strFromU8(read(e.offset + 30, nl)) !== e.name) return fail();
+
   const offset = e.offset + 30 + nl + extra;
   if (offset + e.compressed > e.limit) return fail();
+
   const output = new Uint8Array(e.size);
   let written = 0;
   const put = (chunk: Uint8Array) => {
@@ -155,7 +177,9 @@ export function extractPage(read: Read, e: Entry): Uint8Array {
   const webp =
     strFromU8(output.subarray(0, 4)) === "RIFF" &&
     strFromU8(output.subarray(8, 12)) === "WEBP";
+
   if (!(/\.png$/i.test(e.name) ? png : /\.webp$/i.test(e.name) ? webp : jpg))
     return fail();
+
   return output;
 }

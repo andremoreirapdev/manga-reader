@@ -2,14 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { zipSync } from "fflate";
 import { extractPage, indexZip, safePath } from "../src/services/zip.ts";
+
 const png = Uint8Array.from(
   Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=",
     "base64",
   ),
 );
+
 const read = (bytes: Uint8Array) => (offset: number, length: number) =>
   bytes.slice(offset, offset + length);
+
 test("ordena páginas numericamente e extrai stored/deflate com CRC", () => {
   for (const level of [0, 6] as const) {
     const zip = zipSync(
@@ -29,6 +32,7 @@ test("ordena páginas numericamente e extrai stored/deflate com CRC", () => {
     assert.deepEqual(extractPage(read(zip), entries[0]), png);
   }
 });
+
 test("rejeita caminhos perigosos", () => {
   for (const name of [
     "../a.png",
@@ -43,6 +47,7 @@ test("rejeita caminhos perigosos", () => {
     assert.throws(() => indexZip(read(zip), zip.length));
   }
 });
+
 test("rejeita ZIP truncado, sem imagens, criptografado, ZIP64 e imagem falsa", () => {
   const zip = zipSync({ "1.png": png });
   assert.throws(() => indexZip(read(zip.subarray(0, -1)), zip.length - 1));

@@ -1,4 +1,5 @@
 import { type SQLiteDatabase } from "expo-sqlite";
+
 export type Book = {
   id: string;
   title: string;
@@ -8,13 +9,16 @@ export type Book = {
   accessed: number;
   cover: string;
 };
+
 export async function migrate(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA journal_mode = WAL;");
   const version = await db.getFirstAsync<{ user_version: number }>(
     "PRAGMA user_version",
   );
+
   if ((version?.user_version ?? 0) > 1)
     throw new Error("Banco criado por uma versão mais recente.");
+
   if (!version?.user_version)
     await db.withTransactionAsync(async () => {
       await db.execAsync(
@@ -22,5 +26,6 @@ export async function migrate(db: SQLiteDatabase) {
       );
     });
 }
+
 export const listBooks = (db: SQLiteDatabase) =>
   db.getAllAsync<Book>("SELECT * FROM books ORDER BY accessed DESC");

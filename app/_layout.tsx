@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { migrate } from "../src/storage/database";
 export { ErrorBoundary } from "expo-router";
+
 export default function Layout() {
   return (
     <Suspense
