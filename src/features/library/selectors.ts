@@ -14,7 +14,7 @@ export function isInProgress(book: Book) {
   return book.page > 0 && book.page < book.pages - 1;
 }
 
-function normalize(value: string) {
+export function normalizeLibraryText(value: string) {
   return value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -27,10 +27,10 @@ export function selectBooks(
   filter: LibraryFilter,
   sort: LibrarySort,
 ) {
-  const search = normalize(query.trim());
+  const search = normalizeLibraryText(query.trim());
   const selected = books.filter(
     (book) =>
-      normalize(book.title).includes(search) &&
+      normalizeLibraryText(book.title).includes(search) &&
       (filter === "all" || isInProgress(book)),
   );
 

@@ -110,6 +110,9 @@ test("download integrado publica páginas, dimensões e créditos e evita duplic
     assert.match(job.diagnostics ?? "", /2 páginas em buffer nativo/);
     const book = h.sqlite.prepare("SELECT * FROM books").get();
     assert.equal(book?.sourceChapterId, chapterId);
+    assert.equal(book?.sourceMangaId, request.manga.id);
+    assert.equal(book?.mangaTitle, request.manga.title);
+    assert.equal(book?.chapterNumber, request.chapter.number);
     assert.match(String(book?.credits), /MangaDex.*Equipe de teste/);
     const pagesUri = `file:///private/library/${job.bookId}/pages.json`;
     assert.deepEqual(

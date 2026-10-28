@@ -1,35 +1,41 @@
 import { useEffect, useState } from "react";
 import { Image } from "expo-image";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { Book } from "../../storage/database";
+import type { LibraryManga } from "./grouping";
 import { LibraryIcon } from "./LibraryIcon";
 import { readingPosition } from "./selectors";
 
-export function LibraryBookCard({
-  book,
+export function LibraryMangaCard({
+  manga,
+  expanded,
   featured,
   disabled,
   onOpen,
   onOptions,
 }: {
-  book: Book;
+  manga: LibraryManga;
+  expanded: boolean;
   featured: boolean;
   disabled: boolean;
   onOpen: () => void;
   onOptions: () => void;
 }) {
   const [coverFailed, setCoverFailed] = useState(false);
+  const book = manga.resume;
   const position = readingPosition(book);
 
   useEffect(() => {
     setCoverFailed(false);
-  }, [book.cover]);
+  }, [manga.cover]);
 
   return (
-    <View style={[styles.card, featured && styles.featured]}>
+    <View style={[styles.card, featured && styles.featured, expanded && styles.expanded]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${book.title}. Página ${position.page} de ${book.pages}. Abrir leitor.`}
+        accessibilityLabel={manga.isSeries
+          ? `${manga.title}. ${manga.chapters.length} capítulos baixados. ${expanded ? "Ocultar" : "Ver"} capítulos.`
+          : `${manga.title}. Página ${position.page} de ${book.pages}. Abrir leitor.`}
+        accessibilityState={manga.isSeries ? { expanded } : undefined}
         disabled={disabled}
         onPress={onOpen}
         style={({ pressed }) => [styles.body, pressed && styles.pressed]}
@@ -37,7 +43,7 @@ export function LibraryBookCard({
         <View style={styles.cover}>
           {!coverFailed ? (
             <Image
-              source={book.cover}
+              source={manga.cover}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
               cachePolicy="disk"
@@ -51,18 +57,20 @@ export function LibraryBookCard({
           <Text style={[styles.eyebrow, featured && styles.accent]}>
             {featured
               ? "CONTINUAR LEITURA"
-              : book.source === "mangadex"
+              : manga.source === "mangadex"
                 ? "MANGADEX · OFFLINE"
                 : "CBZ · NO DISPOSITIVO"}
           </Text>
           <Text style={styles.title} numberOfLines={2}>
-            {book.title}
+            {manga.title}
           </Text>
           <Text style={styles.metadata}>
-            {book.pages} {book.pages === 1 ? "página" : "páginas"}
+            {manga.chapters.length} {manga.source === "cbz" ? "arquivo" : manga.chapters.length === 1 ? "capítulo" : "capítulos"} · {manga.pages} páginas
           </Text>
           <View style={styles.progressHeading}>
-            <Text style={styles.position}>Página {position.page}</Text>
+            <Text style={styles.position} numberOfLines={1}>
+              {manga.isSeries ? `Cap. ${book.chapterNumber ?? "especial"} · pág. ${position.page}` : `Página ${position.page}`}
+            </Text>
             <Text style={styles.percent}>{position.percent}%</Text>
           </View>
           <View
@@ -85,16 +93,19 @@ export function LibraryBookCard({
           </View>
           <Text style={styles.date} numberOfLines={1}>
             Acesso em{" "}
-            {new Date(book.accessed).toLocaleDateString("pt-BR", {
+            {new Date(manga.accessed).toLocaleDateString("pt-BR", {
               day: "2-digit",
               month: "2-digit",
             })}
           </Text>
+          {manga.isSeries && (
+            <Text style={styles.expandLabel}>{expanded ? "Ocultar capítulos" : "Ver capítulos baixados"}</Text>
+          )}
         </View>
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Opções de ${book.title}`}
+        accessibilityLabel={`Opções de ${manga.title}`}
         disabled={disabled}
         onPress={onOptions}
         style={({ pressed }) => [styles.options, pressed && styles.pressed]}
@@ -116,6 +127,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   featured: { borderColor: "#647b40", backgroundColor: "#182225" },
+  expanded: { marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
+  expandLabel: { color: "#c5ef86", fontSize: 11, marginTop: 5 },
   body: {
     flex: 1,
     flexDirection: "row",
@@ -149,7 +162,7 @@ const styles = StyleSheet.create({
     marginTop: 7,
     gap: 4,
   },
-  position: { fontSize: 11, color: "#c9d4e1" },
+  position: { fontSize: 11, color: "#c9d4e1", flex: 1 },
   percent: { fontSize: 11, color: "#9faec1", fontVariant: ["tabular-nums"] },
   track: {
     height: 4,

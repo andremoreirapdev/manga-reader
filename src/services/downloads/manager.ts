@@ -211,7 +211,7 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
         const credits = `Fonte: ${source.name} · Tradução: ${groups}`;
         await db.withExclusiveTransactionAsync(async (transaction) => {
           await transaction.runAsync(
-            "INSERT INTO books (id,title,pages,accessed,cover,source,sourceChapterId,credits) VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO books (id,title,pages,accessed,cover,source,sourceChapterId,credits,sourceMangaId,mangaTitle,chapterNumber,chapterLanguage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             job.bookId,
             title,
             pages.length,
@@ -220,6 +220,10 @@ export function createDownloadManager(db: SQLiteDatabase, source: MangaSource) {
             source.id,
             chapter.id,
             credits,
+            job.request.manga.id,
+            job.request.manga.title,
+            chapter.number,
+            chapter.language,
           );
           await transaction.runAsync(
             "UPDATE downloads SET status = 'completed', completed = ?, total = ?, error = NULL, updatedAt = ? WHERE chapterId = ?",

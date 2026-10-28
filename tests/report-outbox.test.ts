@@ -250,7 +250,7 @@ test("migração recupera fila da versão 3 sem tabela de pausas, preservando 98
     assert.match(queue.getSnapshot().lastError ?? "", /consultar pausa da fonte.*no such table.*page_report_limits/);
     queue.pause();
     await migrate(h.db);
-    assert.equal(h.sqlite.prepare("PRAGMA user_version").get()?.user_version, 4);
+    assert.equal(h.sqlite.prepare("PRAGMA user_version").get()?.user_version, 5);
     assert.equal(h.sqlite.prepare("SELECT COUNT(*) AS count FROM page_reports").get()?.count, 98);
     const recovered = h.create();
     await recovered.resume();
