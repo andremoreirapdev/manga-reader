@@ -5,6 +5,7 @@ import { ActivityIndicator, Text, View } from "react-native";
 import { migrate } from "../src/storage/database";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "../src/providers/remote";
+import { DownloadsProvider } from "../src/providers/downloads";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -24,24 +25,26 @@ export default function Layout() {
           onInit={migrate}
           useSuspense
         >
-          <Stack
-            screenOptions={{
-              headerStyle: { backgroundColor: "#161c2b" },
-              headerTintColor: "#fff",
-              contentStyle: { backgroundColor: "#0b101b" },
-            }}
-          >
-            <Stack.Screen name="index" options={{ title: "MangaReader" }} />
-            <Stack.Screen name="reader/[id]" options={{ title: "Leitor" }} />
-            <Stack.Screen
-              name="catalog/index"
-              options={{ title: "Catálogo online" }}
-            />
-            <Stack.Screen
-              name="catalog/[id]"
-              options={{ title: "Detalhes e capítulos" }}
-            />
-          </Stack>
+          <DownloadsProvider>
+            <Stack
+              screenOptions={{
+                headerStyle: { backgroundColor: "#161c2b" },
+                headerTintColor: "#fff",
+                contentStyle: { backgroundColor: "#0b101b" },
+              }}
+            >
+              <Stack.Screen name="index" options={{ title: "MangaReader" }} />
+              <Stack.Screen name="reader/[id]" options={{ title: "Leitor" }} />
+              <Stack.Screen
+                name="catalog/index"
+                options={{ title: "Catálogo online" }}
+              />
+              <Stack.Screen
+                name="catalog/[id]"
+                options={{ title: "Detalhes e capítulos" }}
+              />
+            </Stack>
+          </DownloadsProvider>
         </SQLiteProvider>
       </Suspense>
     </QueryClientProvider>

@@ -139,3 +139,72 @@ test("trata resposta HTTP e JSON fora do contrato com erros legíveis", async ()
   );
   await assert.rejects(malformed.search("teste"), /paginação/);
 });
+
+test("manifesto de download preserva ordem e URL opaca da fonte", async () => {
+  const source = createMangaDexSource(async (url) => {
+    const parsed = new URL(String(url));
+    assert.match(parsed.pathname, /at-home\/server/);
+    assert.equal(parsed.searchParams.get("forcePort443"), "true");
+
+    return new Response(
+      JSON.stringify({
+        baseUrl: "https://third-party.example/temporary/token",
+        chapter: { hash: "a".repeat(32), data: ["10.png", "2.jpg"] },
+      }),
+    );
+  }, 0);
+  const manifest = await source.getChapterPages(id);
+  assert.deepEqual(
+    manifest.pages.map((page) => page.extension),
+    ["png", "jpg"],
+  );
+  assert.match(
+    manifest.pages[0].url,
+    /temporary\/token\/data\/[a-f0-9]+\/10.png$/,
+  );
+});
+
+test("manifestos sem páginas, com caminho suspeito ou sem TLS são rejeitados", async () => {
+  for (const data of [[], ["../1.png"], ["page.exe"]]) {
+    const source = createMangaDexSource(
+      async () =>
+        new Response(
+          JSON.stringify({
+            baseUrl: "https://uploads.mangadex.org",
+            chapter: { hash: "a".repeat(32), data },
+          }),
+        ),
+      0,
+    );
+    await assert.rejects(source.getChapterPages(id));
+  }
+
+  const source = createMangaDexSource(
+    async () =>
+      new Response(
+        JSON.stringify({
+          baseUrl: "http://node.example",
+          chapter: { hash: "a".repeat(32), data: ["1.png"] },
+        }),
+      ),
+    0,
+  );
+  await assert.rejects(source.getChapterPages(id));
+});
+
+test("relatório dispensa domínio próprio e detecta recusa HTTP do servidor parceiro", async () => {
+  let calls = 0;
+  const source = createMangaDexSource(async (url, options) => {
+    calls++;
+    assert.equal(url, "https://api.mangadex.network/report");
+    assert.equal(options?.method, "POST");
+    assert.equal(JSON.parse(String(options?.body)).bytes, 123);
+
+    return new Response("", { status: 503 });
+  }, 0);
+  const report = { url: "https://uploads.mangadex.org/1.png", bytes: 123, duration: 20, success: true, cached: false };
+  await source.reportPage!(report);
+  assert.equal(calls, 0);
+  await assert.rejects(source.reportPage!({ ...report, url: "https://node.example/1.png" }), /não aceitou/);
+  assert.equal(calls, 1);
+});

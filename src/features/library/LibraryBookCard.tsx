@@ -49,7 +49,11 @@ export function LibraryBookCard({
         </View>
         <View style={styles.details}>
           <Text style={[styles.eyebrow, featured && styles.accent]}>
-            {featured ? "CONTINUAR LEITURA" : "CBZ · NO DISPOSITIVO"}
+            {featured
+              ? "CONTINUAR LEITURA"
+              : book.source === "mangadex"
+                ? "MANGADEX · OFFLINE"
+                : "CBZ · NO DISPOSITIVO"}
           </Text>
           <Text style={styles.title} numberOfLines={2}>
             {book.title}

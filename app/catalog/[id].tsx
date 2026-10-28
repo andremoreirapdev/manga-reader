@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useFocusEffect, router } from "expo-router";
 import { ActivityIndicator, Button, FlatList, Text, View } from "react-native";
 import { mangaSource } from "../../src/providers/remote";
 import { Cover } from "../../src/features/catalog/Cover";
 import { styles } from "../../src/features/catalog/styles";
+import { useDownloads } from "../../src/providers/downloads";
+import { DownloadBanner } from "../../src/features/downloads/DownloadBanner";
 
 const statusLabels: Record<string, string> = {
   ongoing: "Em publicação",
@@ -15,6 +17,13 @@ const statusLabels: Record<string, string> = {
 
 export default function MangaDetails() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { manager, snapshot } = useDownloads();
+
+  useFocusEffect(
+    useCallback(() => {
+      void manager.refresh().catch(() => {});
+    }, [manager]),
+  );
   const [selectedLanguage, setSelectedLanguage] = useState<
     string | null | undefined
   >(undefined);
@@ -68,8 +77,10 @@ export default function MangaDetails() {
 
   return (
     <View style={styles.screen}>
+      <DownloadBanner />
       <FlatList
         data={items}
+        extraData={snapshot}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <View style={{ gap: 10 }}>
@@ -114,8 +125,8 @@ export default function MangaDetails() {
               />
             </View>
             <Text style={styles.muted}>
-              Nesta etapa, os capítulos estão disponíveis para consulta. O
-              download será implementado a seguir.
+              Baixe um capítulo por vez para ler offline. Mantenha o app aberto
+              até concluir.
             </Text>
             {chapters.isFetching && !chapters.isFetchingNextPage && (
               <ActivityIndicator />
@@ -168,6 +179,40 @@ export default function MangaDetails() {
             {item.external && (
               <Text style={styles.muted}>Disponível em fonte externa.</Text>
             )}
+            {snapshot.jobs[item.id]?.error && (
+              <Text style={styles.error}>{snapshot.jobs[item.id].error}</Text>
+            )}
+            <Button
+              title={
+                snapshot.jobs[item.id]?.status === "completed"
+                  ? "Ler offline"
+                  : snapshot.active?.chapterId === item.id
+                    ? "Baixando…"
+                    : snapshot.jobs[item.id]
+                      ? "Tentar download novamente"
+                      : "Baixar capítulo"
+              }
+              disabled={
+                snapshot.jobs[item.id]?.status === "completed"
+                  ? false
+                  : !snapshot.ready ||
+                    !!snapshot.active ||
+                    item.external ||
+                    item.pages === 0
+              }
+              onPress={() => {
+                const saved = snapshot.jobs[item.id];
+
+                if (saved?.status === "completed") {
+                  router.push({
+                    pathname: "/reader/[id]",
+                    params: { id: saved.bookId },
+                  });
+                } else {
+                  void manager.start({ manga: manga.data, chapter: item });
+                }
+              }}
+            />
           </View>
         )}
         ListFooterComponent={

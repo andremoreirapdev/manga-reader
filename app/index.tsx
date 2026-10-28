@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stack, useFocusEffect, router } from "expo-router";
 import { useSQLiteContext } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
@@ -21,6 +21,8 @@ import {
   type SheetAction,
 } from "../src/features/library/LibraryActionSheet";
 import { LibraryIcon } from "../src/features/library/LibraryIcon";
+import { useDownloads } from "../src/providers/downloads";
+import { DownloadBanner } from "../src/features/downloads/DownloadBanner";
 import {
   isInProgress,
   selectBooks,
@@ -33,6 +35,10 @@ type SheetState =
 
 export default function Library() {
   const db = useSQLiteContext();
+  const downloads = useDownloads();
+  const completedDownloads = Object.values(downloads.snapshot.jobs).filter(
+    (job) => job.status === "completed",
+  ).length;
   const insets = useSafeAreaInsets();
   const list = useRef<FlatList<Book>>(null);
   const [books, setBooks] = useState<Book[]>([]);
@@ -63,6 +69,10 @@ export default function Library() {
       setLoading(false);
     }
   }, [db]);
+
+  useEffect(() => {
+    if (downloads.snapshot.ready) void refresh();
+  }, [completedDownloads, downloads.snapshot.ready, refresh]);
 
   useFocusEffect(
     useCallback(() => {
@@ -201,6 +211,7 @@ export default function Library() {
         onClose={() => setSheet(null)}
       />
       <View style={styles.header}>
+        <DownloadBanner />
         <View style={styles.headingRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.brand}>MANGAREADER</Text>

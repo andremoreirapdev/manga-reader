@@ -1,5 +1,6 @@
 import type {
   Chapter,
+  ChapterPages,
   Manga,
   MangaSource,
   PageRequest,
@@ -9,6 +10,57 @@ import type {
 const API = "https://api.mangadex.org";
 export const USER_AGENT = "MangaReader/0.1.0 (personal Android app)";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function mapChapterPages(value: unknown): ChapterPages {
+  const body = record(value);
+  const chapter = record(body.chapter);
+  const baseUrl = text(body.baseUrl);
+  let base: URL;
+
+  try {
+    base = new URL(baseUrl);
+  } catch {
+    throw new SourceError(
+      "O MangaDex retornou um servidor de páginas inválido.",
+    );
+  }
+  const revision = text(chapter.hash);
+
+  if (
+    base.protocol !== "https:" ||
+    base.username ||
+    base.password ||
+    base.search ||
+    base.hash ||
+    !/^[a-f0-9]{32,64}$/i.test(revision) ||
+    !Array.isArray(chapter.data) ||
+    chapter.data.length === 0 ||
+    chapter.data.length > 5000
+  ) {
+    throw new SourceError(
+      "O MangaDex não disponibilizou páginas válidas para este capítulo.",
+    );
+  }
+
+  return {
+    revision,
+    expiresAt: Date.now() + 14 * 60 * 1000,
+    pages: chapter.data.map((value) => {
+      const filename = text(value);
+
+      if (!/^[a-zA-Z0-9_-]+\.(jpe?g|png|webp)$/i.test(filename)) {
+        throw new SourceError(
+          "O MangaDex retornou um nome de página inválido.",
+        );
+      }
+
+      return {
+        url: `${baseUrl.replace(/\/$/, "")}/data/${revision}/${encodeURIComponent(filename)}`,
+        extension: filename.split(".").pop()!.toLowerCase(),
+      };
+    }),
+  };
+}
 
 export class SourceError extends Error {
   readonly status?: number;
@@ -262,6 +314,45 @@ export function createMangaDexSource(
   return {
     id: "mangadex",
     name: "MangaDex",
+    async getChapterPages(id, signal) {
+      identifier(id);
+
+      return mapChapterPages(
+        await request(
+          `/at-home/server/${id}`,
+          new URLSearchParams({ forcePort443: "true" }),
+          signal,
+        ),
+      );
+    },
+    async reportPage(report) {
+      const host = new URL(report.url).hostname;
+
+      if (host === "mangadex.org" || host.endsWith(".mangadex.org")) {
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+
+      try {
+        const response = await fetcher("https://api.mangadex.network/report", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+          },
+          body: JSON.stringify(report),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new SourceError("O servidor não aceitou o relatório da página.", response.status);
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
     async search(title, options = {}) {
       if (title.trim().length < 2) {
         return { items: [], total: 0, nextOffset: null };

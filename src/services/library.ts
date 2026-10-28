@@ -11,6 +11,27 @@ const root = () => {
   return d;
 };
 
+async function downloadedPages(dir: Directory): Promise<string[] | null> {
+  const metadata = new File(dir, "pages.json");
+
+  if (!metadata.exists) return null;
+
+  const pages: unknown = JSON.parse(await metadata.text());
+
+  if (
+    !Array.isArray(pages) ||
+    pages.length === 0 ||
+    !pages.every(
+      (page) =>
+        typeof page === "string" && /^page-\d{5}\.(jpe?g|png|webp)$/.test(page),
+    )
+  ) {
+    throw new Error("Índice do capítulo baixado inválido.");
+  }
+
+  return pages;
+}
+
 function open(file: File) {
   const handle = file.open();
 
@@ -112,6 +133,21 @@ export async function pageUri(
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Identificador inválido.");
 
   const dir = new Directory(root(), id);
+  const downloaded = await downloadedPages(dir);
+
+  if (downloaded) {
+    const name = downloaded[page];
+
+    if (!name) throw new Error("Página inexistente.");
+
+    const stored = new File(dir, name);
+
+    if (!stored.exists)
+      throw new Error("Página ausente. Remova o capítulo e baixe novamente.");
+
+    return stored.uri;
+  }
+
   const entries = JSON.parse(
     await new File(dir, "index.json").text(),
   ) as Entry[];
@@ -160,6 +196,21 @@ export async function verticalPageSizes(
   const dir = new Directory(root(), id);
   const metadata = new File(dir, "sizes.json");
   if (metadata.exists) return JSON.parse(await metadata.text()) as PageSize[];
+  const downloaded = await downloadedPages(dir);
+
+  if (downloaded) {
+    const sizes: PageSize[] = [];
+
+    for (const name of downloaded) {
+      if (canceled()) throw new Error("Preparação cancelada.");
+
+      sizes.push(imageSize(await new File(dir, name).bytes()));
+    }
+
+    await metadata.write(JSON.stringify(sizes));
+
+    return sizes;
+  }
   const entries = JSON.parse(
     await new File(dir, "index.json").text(),
   ) as Entry[];
@@ -181,6 +232,9 @@ export async function verticalPageSizes(
 /** Uma fila de extração e arquivos retidos somente enquanto a célula está montada. */
 export function createVerticalSession(id: string) {
   const session = Crypto.randomUUID();
+  const cachePrefix =
+    new Directory(Paths.cache, "reader", id, session).uri.replace(/\/$/, "") +
+    "/";
   const references = new Map<number, number>();
   const files = new Map<number, string>();
   let queue: Promise<unknown> = Promise.resolve();
@@ -190,8 +244,11 @@ export function createVerticalSession(id: string) {
     if (references.get(page)) return;
     const uri = files.get(page);
     if (uri) {
-      const file = new File(uri);
-      if (file.exists) file.delete();
+      // Páginas baixadas pertencem à biblioteca, não ao cache da sessão.
+      if (uri.startsWith(cachePrefix)) {
+        const file = new File(uri);
+        if (file.exists) file.delete();
+      }
       files.delete(page);
     }
   }
@@ -235,10 +292,11 @@ export function createVerticalSession(id: string) {
 export async function removeBook(db: SQLiteDatabase, id: string) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Identificador inválido.");
   await db.runAsync("DELETE FROM books WHERE id = ?", id);
-  
+  await db.runAsync("DELETE FROM downloads WHERE bookId = ?", id);
+
   const dir = new Directory(root(), id);
   if (dir.exists) dir.delete();
-  
+
   const cache = new Directory(Paths.cache, "reader", id);
   if (cache.exists) cache.delete();
 }

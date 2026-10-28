@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 
 // Executa o serviço real com fronteiras nativas simuladas; não carrega Expo no Node.
-function setup(copyFailure = false) {
+function setup(copyFailure = false, downloaded = false) {
   const events: string[] = [];
   const deleted: string[] = [];
   let copied = false;
@@ -17,12 +17,18 @@ function setup(copyFailure = false) {
     delete() {
       events.push("delete-private");
     }
-    constructor(..._parts: unknown[]) {}
+    constructor(...parts: (string | { uri: string })[]) {
+      this.uri = parts
+        .map((part) => (typeof part === "string" ? part : part.uri))
+        .join("/");
+    }
   }
-  
+
   class File {
     uri: string;
-    exists = true;
+    get exists() {
+      return downloaded || !this.uri.endsWith("/pages.json");
+    }
     size = 100;
     constructor(parent: string | Directory, name?: string) {
       this.uri = typeof parent === "string" ? parent : `${parent.uri}/${name}`;
@@ -52,7 +58,11 @@ function setup(copyFailure = false) {
     }
 
     async text() {
-      return JSON.stringify([{ name: "1.png" }]);
+      return JSON.stringify(
+        this.uri.endsWith("/pages.json")
+          ? ["page-00001.png"]
+          : [{ name: "1.png" }],
+      );
     }
 
     delete() {
@@ -62,7 +72,11 @@ function setup(copyFailure = false) {
   }
 
   const modules: Record<string, unknown> = {
-    "expo-file-system": { Directory, File, Paths: { document: "private" } },
+    "expo-file-system": {
+      Directory,
+      File,
+      Paths: { document: "file:///private", cache: "file:///cache" },
+    },
     "expo-document-picker": {
       async getDocumentAsync(options: { copyToCacheDirectory: boolean }) {
         assert.equal(options.copyToCacheDirectory, false);
@@ -164,4 +178,15 @@ test("cache vertical cancela extração de célula liberada antes de chegar à f
   await assert.rejects(cell.uri, /Página liberada/);
   assert.equal(deleted.length, 0);
   session.close();
+});
+
+test("cache vertical nunca apaga páginas permanentes de um capítulo baixado", async () => {
+  const { deleted, createSession } = setup(false, true);
+  const session = createSession("11111111-1111-4111-8111-111111111111");
+  const page = session.retain(0);
+  const uri = await page.uri;
+  assert.match(uri, /private\/library\/.*\/page-00001.png$/);
+  page.release();
+  session.close();
+  assert.deepEqual(deleted, []);
 });

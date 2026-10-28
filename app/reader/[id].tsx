@@ -119,6 +119,11 @@ export default function Reader() {
   return (
     <View style={styles.screen}>
       <Text style={styles.text}>{book?.title}</Text>
+      {!!book?.credits && (
+        <Text style={[styles.text, { fontSize: 11, color: "#aab7cc" }]}>
+          {book.credits}
+        </Text>
+      )}
       <View style={styles.toolbar}>
         <Button
           title="← Próxima"

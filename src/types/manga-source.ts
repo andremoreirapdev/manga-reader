@@ -27,11 +27,27 @@ export type SourcePage<T> = {
 
 export type PageRequest = { offset?: number; signal?: AbortSignal };
 
+export type ChapterPages = {
+  revision: string;
+  expiresAt: number;
+  pages: { url: string; extension: string }[];
+};
+
+export type PageReport = {
+  url: string;
+  success: boolean;
+  bytes: number;
+  duration: number;
+  cached: boolean;
+};
+
 export interface MangaSource {
   readonly id: string;
   readonly name: string;
   search(title: string, request?: PageRequest): Promise<SourcePage<Manga>>;
   getManga(id: string, signal?: AbortSignal): Promise<Manga>;
+  getChapterPages(id: string, signal?: AbortSignal): Promise<ChapterPages>;
+  reportPage?(report: PageReport): Promise<void>;
   chapters(
     id: string,
     language: string | null,

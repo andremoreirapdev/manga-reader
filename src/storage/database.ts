@@ -8,6 +8,9 @@ export type Book = {
   mode: "paged" | "vertical";
   accessed: number;
   cover: string;
+  source?: string;
+  sourceChapterId?: string | null;
+  credits?: string | null;
 };
 
 export async function migrate(db: SQLiteDatabase) {
@@ -16,14 +19,35 @@ export async function migrate(db: SQLiteDatabase) {
     "PRAGMA user_version",
   );
 
-  if ((version?.user_version ?? 0) > 1)
-    throw new Error("Banco criado por uma versão mais recente.");
+  const current = version?.user_version ?? 0;
 
-  if (!version?.user_version)
+  if (current > 2) throw new Error("Banco criado por uma versão mais recente.");
+
+  if (current < 2)
     await db.withTransactionAsync(async () => {
-      await db.execAsync(
-        `CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT NOT NULL, pages INTEGER NOT NULL, page INTEGER NOT NULL DEFAULT 0, mode TEXT NOT NULL DEFAULT 'paged', accessed INTEGER NOT NULL, cover TEXT NOT NULL); PRAGMA user_version = 1;`,
-      );
+      if (current === 0) {
+        await db.execAsync(
+          `CREATE TABLE books (id TEXT PRIMARY KEY, title TEXT NOT NULL, pages INTEGER NOT NULL, page INTEGER NOT NULL DEFAULT 0, mode TEXT NOT NULL DEFAULT 'paged', accessed INTEGER NOT NULL, cover TEXT NOT NULL);`,
+        );
+      }
+
+      await db.execAsync(`
+        ALTER TABLE books ADD COLUMN source TEXT NOT NULL DEFAULT 'cbz';
+        ALTER TABLE books ADD COLUMN sourceChapterId TEXT;
+        ALTER TABLE books ADD COLUMN credits TEXT;
+        CREATE UNIQUE INDEX books_source_chapter ON books(source, sourceChapterId);
+        CREATE TABLE downloads (
+          chapterId TEXT PRIMARY KEY,
+          request TEXT NOT NULL,
+          status TEXT NOT NULL,
+          bookId TEXT NOT NULL,
+          completed INTEGER NOT NULL DEFAULT 0,
+          total INTEGER NOT NULL DEFAULT 0,
+          error TEXT,
+          updatedAt INTEGER NOT NULL
+        );
+        PRAGMA user_version = 2;
+      `);
     });
 }
 

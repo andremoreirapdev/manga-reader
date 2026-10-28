@@ -223,7 +223,7 @@ Recursos da tela:
 - Estado vazio com orientação de importação, busca sem resultados, erro, carregamento e fallback de capa.
 - Área segura do Android respeitada no topo e rodapé; lista permanece vertical também em telas maiores.
 
-Arquivos: `app/index.tsx`, componentes e seletores em `src/features/library/`, testes em `tests/library-selectors.test.ts`. Nenhuma dependência, migração de banco ou comportamento do leitor foi adicionado nesta mudança. O download de capítulos continua pendente.
+Arquivos: `app/index.tsx`, componentes e seletores em `src/features/library/`, testes em `tests/library-selectors.test.ts`. Nenhuma dependência, migração de banco ou comportamento do leitor foi adicionado nesta mudança. O fluxo de download por capítulo está descrito na seção seguinte.
 
 Validação executada: TypeScript, 20 testes e bundle Hermes Android passaram. Não há lint configurado no projeto. A aparência e a interação final precisam ser conferidas no celular:
 
@@ -236,3 +236,59 @@ Confira biblioteca vazia, cards com títulos longos, busca por acentos, filtro E
 ### Menus da biblioteca
 
 Menu do item, ordenação e confirmação de remoção usam o componente `src/features/library/LibraryActionSheet.tsx`, com painel inferior escuro, ações de remoção em vermelho e indicação da ordenação selecionada. Toque fora, botão Fechar/Cancelar ou Voltar do Android fecham o painel. O fluxo de confirmação permanece obrigatório antes de apagar um item. Não há novas dependências.
+
+
+## MVP 2 — download por capítulo
+
+Na tela de detalhes, cada capítulo disponível tem **Baixar capítulo**. Há um download por vez, em qualidade original (`data`), usando as URLs e a ordem retornadas por MangaDex@Home. Não há scraping, troca manual de servidor, autenticação em imagens ou contorno de recusa de acesso. Capítulos externos e sem páginas não oferecem download.
+
+### Funcionamento
+
+- Banner com páginas concluídas, bytes recebidos, progresso e cancelamento; acompanha a navegação entre detalhes e biblioteca.
+- O download exige o app em primeiro plano. Ao ir para segundo plano, a transferência é cancelada e marcada como interrompida. Para repetir, o capítulo recomeça do início; não há retomada parcial nem serviço Android em segundo plano nesta versão.
+- A transferência usa `expo/fetch` em blocos gravados por FileHandle, com timeout de 90 segundos por página. A validação lê uma imagem por vez, limitada a 24 MiB. O capítulo tem limite de 2 GiB, 5 mil páginas e 64 megapixels por imagem.
+- Arquivos incompletos têm extensão `.part` e ficam em `download-staging/`. A biblioteca só recebe o item após todas as páginas serem validadas e publicadas em transação SQLite.
+- Falhas temporárias de rede/HTTP 5xx permitem até três tentativas por página, com intervalo e nova consulta ao servidor indicado pela fonte. HTTP 403/404/429 não são repetidos automaticamente. A pausa de HTTP 429 é respeitada.
+- URLs temporárias são renovadas antes de vencer; mudança de revisão do capítulo interrompe o processo para evitar misturar páginas de versões diferentes. Relatórios de sucesso/falha são enviados ao MangaDex@Home para nós de terceiros, conforme a documentação da fonte.
+- Ao reabrir o app, registros de tentativas interrompidas são recuperados e seus arquivos próprios incompletos são limpos. Um capítulo concluído não é baixado novamente: a ação muda para **Ler offline**.
+- Cada versão/grupo de tradução mantém seu ID de capítulo, seus créditos e progresso próprios. Capítulos baixados aparecem como itens individuais na biblioteca, usando a primeira página como capa. Agrupamento em uma única ficha por mangá fica para um incremento futuro.
+
+### Armazenamento e compatibilidade
+
+O SQLite migra de versão 1 para 2 em transação, preservando os CBZs, página e modo de leitura existentes. A tabela `books` recebe fonte, ID do capítulo e créditos; `downloads` registra a solicitação, estado, contagem e erros. Um índice único evita duplicação do mesmo capítulo da mesma fonte.
+
+O padrão interno para downloads é uma pasta privada contendo `page-00001.ext`, `pages.json` (ordem) e `sizes.json` (dimensões). CBZs antigos continuam usando o índice ZIP original. O leitor oferece os mesmos modos e progresso para ambos; seu cache nunca remove as páginas permanentes dos downloads. Créditos de MangaDex e do grupo ficam disponíveis no leitor mesmo sem conexão.
+
+Arquivos principais: `src/features/downloads/engine.ts`, `src/services/downloads/manager.ts`, `src/services/downloads/transfer.ts`, `src/providers/downloads.tsx`, `src/features/downloads/DownloadBanner.tsx`; integração nas rotas, cliente MangaDex, biblioteca e migração SQLite.
+
+Referências oficiais consultadas: [obtenção de páginas](https://api.mangadex.org/docs/04-chapter/retrieving-chapter/), [limites da API](https://api.mangadex.org/docs/2-limitations/) e [Expo FileSystem](https://docs.expo.dev/versions/v58.0.0/sdk/filesystem/). Nenhuma dependência nova foi instalada.
+
+### Testar no celular
+
+Feche e reabra o app para executar a migração; não limpe os dados do aplicativo.
+
+```powershell
+npx expo start --go --clear
+```
+
+1. Confira se seus CBZs e progresso anteriores continuam na biblioteca.
+2. Em Explorar, abra um título, escolha o idioma/grupo e toque em **Baixar capítulo**.
+3. Aguarde com o app aberto, conferindo progresso e cancelamento. Quando concluir, toque em **Ler offline** e teste os dois modos.
+4. Volte à biblioteca, ative modo avião e abra o capítulo salvo. Confira a restauração de progresso após fechar/reabrir o app.
+5. Comece outro download e cancele. Ele não deve aparecer como leitura disponível. Teste também uma falha de conexão e a opção de tentar novamente.
+6. Envie o app para segundo plano durante uma transferência; ao voltar, confira a indicação de interrupção. Em caso de fechamento forçado, reabra para a limpeza da tentativa incompleta.
+7. Remova um capítulo concluído e confira que pode baixá-lo de novo.
+
+Os testes usam páginas sintéticas, respostas de rede simuladas e SQLite real em memória. O filesystem nativo é simulado nas verificações integradas; a transferência real e o comportamento em segundo plano no Android ainda precisam de validação no dispositivo. Não houve download automático de páginas de obras do catálogo durante o desenvolvimento. O APK anterior não incorpora estas alterações: será necessário gerar outro após o teste no Expo Go.
+
+Validação desta implementação: `npm run typecheck`, 42 testes e `npx expo export --platform android` passaram (bundle Hermes com 1.281 módulos). Os testes incluem migração/rollback em SQLite real, transferência em blocos simulada, publicação atômica, cancelamento, HTTP 429, renovação de manifesto, deduplicação e preservação das páginas permanentes no cache vertical. Não há lint configurado. A validação do download real no celular permanece pendente.
+
+### Diagnóstico de lentidão dos downloads
+
+Os relatórios MangaDex@Home usam uma fila por tentativa de capítulo: no máximo dois envios ativos e quatro pendentes (incluindo os ativos). A próxima página pode baixar enquanto relatórios anteriores aguardam resposta. Quando a fila enche, o produtor aguarda espaço; não descartamos relatórios para acelerar. Ao terminar, falhar ou cancelar, a fila restante é finalizada antes de liberar outro download. Cada envio mantém o timeout de 5 segundos; falhas de relatório não invalidam páginas salvas.
+
+O aviso de conclusão ou falha oferece **Ver diagnóstico do download**: duração total, quantidade de tentativas de página, espera pelos cabeçalhos, leitura da rede, gravação, validação, fechamento da transferência, atualização dos arquivos/banco, publicação, consultas à fonte, pausas e espera dos relatórios. A mesma informação aparece no console com o prefixo `[Download]`, sem URLs temporárias. O diagnóstico fica somente na sessão atual; não é persistido no SQLite. Tempos dos relatórios se sobrepõem ao download e não devem ser somados ao total.
+
+Para comparar, baixe novamente o mesmo capítulo depois de removê-lo da biblioteca (isso também remove seu progresso local). Mantenha o aplicativo aberto e, antes de fechar o aviso, abra o diagnóstico. Cache do servidor e condições de rede podem variar entre tentativas. A pausa de 1 segundo por página, as tentativas limitadas, validação e limites de armazenamento permanecem; a melhoria real de tempo ainda precisa ser medida no celular.
+
+Validação da otimização: TypeScript sem erros, 48 testes aprovados e exportação Android/Hermes concluída com 1.282 módulos. Os testes novos verificam páginas avançando com relatórios pendentes, limite de dois envios/quatro pendentes, esvaziamento da fila, tratamento de falha HTTP, relatório da tentativa cancelada e medição das pausas. Não há lint configurado. A comparação real de velocidade desta versão permanece pendente no celular.
