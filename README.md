@@ -251,7 +251,7 @@ Na tela de detalhes, cada capítulo disponível tem **Baixar capítulo**. Há um
 - Falhas temporárias de rede/HTTP 5xx permitem até três tentativas por página, com intervalo e nova consulta ao servidor indicado pela fonte. HTTP 403/404/429 não são repetidos automaticamente. A pausa de HTTP 429 é respeitada.
 - URLs temporárias são renovadas antes de vencer; mudança de revisão do capítulo interrompe o processo para evitar misturar páginas de versões diferentes. Relatórios de sucesso/falha são enviados ao MangaDex@Home para nós de terceiros, conforme a documentação da fonte.
 - Ao reabrir o app, registros de tentativas interrompidas são recuperados e seus arquivos próprios incompletos são limpos. Um capítulo concluído não é baixado novamente: a ação muda para **Ler offline**.
-- Cada versão/grupo de tradução mantém seu ID de capítulo, seus créditos e progresso próprios. A biblioteca agrupa capítulos pelo ID da obra e pela fonte, com um cartão por título e a primeira página do primeiro capítulo como capa local. Ao tocar, os capítulos baixados aparecem na própria lista nesta etapa. CBZs e capítulos antigos sem identidade recuperável permanecem individuais; nomes parecidos não são usados para adivinhar relações.
+- Cada versão/grupo de tradução mantém seu ID de capítulo, seus créditos e progresso próprios. A biblioteca agrupa capítulos pelo ID da obra e pela fonte, com um cartão por título e a primeira página do primeiro capítulo como capa local. Ao tocar, abre a tela de detalhes com os capítulos baixados e acesso ao catálogo. CBZs e capítulos antigos sem identidade recuperável permanecem individuais; nomes parecidos não são usados para adivinhar relações.
 
 ### Armazenamento e compatibilidade
 
@@ -335,7 +335,7 @@ Ao recuperar a fila, relatórios antigos com `success: true` são removidos em l
 
 Teste pelo Expo Go: reinicie o projeto com `npx expo start --go --clear`, sem limpar os dados. A fila antiga de sucessos será limpa automaticamente ao abrir. Baixe um capítulo válido e confirme `0 falhas de imagem registradas` no diagnóstico. Não é necessário provocar uma falha longa no celular: os testes cobrem capítulo com falha terminal (três tentativas registradas), falha recuperada (nenhum relatório), cancelamento e limpeza paginada dos sucessos antigos. TypeScript e 69 testes passaram.
 
-### Biblioteca agrupada por mangá — primeira etapa
+### Biblioteca agrupada por mangá — primeira etapa (histórico)
 
 A tela inicial agora exibe um cartão por obra identificada (fonte + ID do mangá). Título, quantidade de capítulos, total de páginas e progresso para continuar são apresentados no cartão. Busca, ordenação e contagem dos filtros operam sobre as obras; capítulos em idiomas/grupos diferentes permanecem registros distintos. O menu da obra oferece continuar leitura e ver capítulos. O menu individual de cada capítulo conserva abertura e remoção com confirmação. Remover um capítulo não apaga os demais; removendo o último, o grupo desaparece naturalmente.
 
@@ -348,3 +348,19 @@ Teste no Expo Go com `npx expo start --go --clear`: feche/reabra o projeto para 
 Próximas etapas combinadas: página de detalhes com capítulos baixados e disponíveis para download, seguida das melhorias do leitor (navegação por gestos sem zonas de toque, deslocamento vertical e zoom). Essas alterações do leitor ainda não foram implementadas.
 
 Validação do agrupamento: TypeScript sem erros, 77 testes aprovados e exportação Android/Hermes concluída com 1.286 módulos. Não há lint configurado. A apresentação e a interação da lista agrupada ainda precisam ser verificadas no celular. Nenhum APK novo foi gerado.
+
+### Detalhes do mangá — etapa atual
+
+O cartão da biblioteca abre a mesma rota `app/catalog/[id].tsx` usada pelo catálogo, agora com uma tela compartilhada em `src/features/catalog/MangaDetailsScreen.tsx`. Pela biblioteca, inicia em **Baixados**, com todos os idiomas; pelo catálogo, inicia em **Todos**, preferindo PT-BR quando disponível. A expansão provisória dos capítulos na biblioteca foi substituída por essa navegação. CBZs continuam abrindo diretamente no leitor.
+
+A tela oferece **Todos**, **Baixados** e **Para baixar**, além de filtros PT-BR, inglês e todos os idiomas. Cada versão é identificada pelo ID real do capítulo: traduções de mesmo número não se confundem. Capítulos salvos usam selo **BAIXADO**, progresso e **Ler offline**; os remotos elegíveis usam **DISPONÍVEL** e **Baixar capítulo**. Capítulos externos ou sem páginas não permitem download. Um download por vez continua sendo a regra; os salvos podem ser lidos enquanto outro baixa. Ao concluir um download, os dados locais são recarregados e a ação muda para leitura.
+
+`src/features/catalog/chapter-list.ts` une capítulos da API e do SQLite sem duplicar IDs, preservando locais que não vieram na página remota atual. Contagens da fonte indicam apenas quantos resultados foram carregados e o total informado pela API; **Carregar mais capítulos** mantém a paginação. **Para baixar** filtra os resultados carregados e não promete que toda a coleção remota foi consultada.
+
+`src/services/manga-library.ts` consulta os livros pelo ID da obra/fonte e recupera sinopse, status, ano e idiomas da solicitação salva quando disponíveis. A capa local e os capítulos são apresentados sem aguardar a API. Falha na consulta online não bloqueia leitura offline; metadados ausentes/corrompidos usam o título local e uma descrição alternativa. O botão de continuar prioriza o capítulo com progresso já salvo. Cada baixado pode ser removido com confirmação; a tela atualiza os registros locais e volta a oferecer o download se a versão existir nos resultados remotos. A remoção também elimina o progresso daquele capítulo.
+
+Teste no Expo Go com `npx expo start --go --clear`: abra um mangá da biblioteca e confira **Baixados**; entre em **Todos** ou **Para baixar**, selecione idioma e baixe outro capítulo. Confira a mudança de status e abra **Ler offline**. Volte do leitor e veja o progresso atualizado. Em modo avião, reabra a ficha de uma obra já salva e confira leitura, capa e capítulos locais. Teste também a entrada pelo catálogo e a paginação. Não limpe os dados do aplicativo. Não há nova migração do banco ou dependência nesta etapa.
+
+O leitor permanece inalterado. A próxima etapa combinada é retirar as zonas de toque da navegação por páginas e implementar gestos, deslocamento vertical e zoom. A aparência e o fluxo da nova ficha ainda precisam ser conferidos no celular.
+
+Validação da tela de detalhes: TypeScript sem erros, 80 testes aprovados e bundle Android/Hermes exportado com sucesso (1.288 módulos). Os testes específicos cobrem união sem duplicatas, capítulos locais fora da página remota, idiomas e traduções, capítulos inelegíveis, remoção local e recuperação de detalhes offline mesmo com JSON de metadados corrompido. Não há lint configurado e nenhum APK novo foi gerado.

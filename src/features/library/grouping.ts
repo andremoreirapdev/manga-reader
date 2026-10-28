@@ -13,13 +13,7 @@ export type LibraryManga = {
   accessed: number;
   inProgress: boolean;
 };
-export type LibraryRow =
-  | { kind: "manga"; id: string; manga: LibraryManga }
-  | { kind: "chapter"; id: string; book: Book; last: boolean };
-
-function compareChapters(a: Book, b: Book) {
-  const first = a.chapterNumber;
-  const second = b.chapterNumber;
+export function compareChapterNumbers(first: string | null | undefined, second: string | null | undefined) {
 
   if (!first && second) return 1;
   if (first && !second) return -1;
@@ -30,7 +24,11 @@ function compareChapters(a: Book, b: Book) {
     if (Number.isFinite(difference) && difference !== 0) return difference;
   }
 
-  return (first ?? "").localeCompare(second ?? "", "pt-BR", { numeric: true }) ||
+  return (first ?? "").localeCompare(second ?? "", "pt-BR", { numeric: true });
+}
+
+function compareChapters(a: Book, b: Book) {
+  return compareChapterNumbers(a.chapterNumber, b.chapterNumber) ||
     (a.chapterLanguage ?? "").localeCompare(b.chapterLanguage ?? "") ||
     a.title.localeCompare(b.title, "pt-BR") || a.id.localeCompare(b.id);
 }
@@ -79,14 +77,4 @@ export function selectMangas(mangas: LibraryManga[], query: string, filter: Libr
     ? a.title.localeCompare(b.title, "pt-BR", { numeric: true, sensitivity: "base" }) || a.id.localeCompare(b.id)
     : b.accessed - a.accessed || a.id.localeCompare(b.id),
   );
-}
-
-/** Uma FlatList única virtualiza tanto os mangás quanto os capítulos expandidos. */
-export function libraryRows(mangas: LibraryManga[], expanded: ReadonlySet<string>): LibraryRow[] {
-  return mangas.flatMap((manga): LibraryRow[] => [
-    { kind: "manga", id: manga.id, manga },
-    ...(manga.isSeries && expanded.has(manga.id) ? manga.chapters.map((book, index): LibraryRow => ({
-      kind: "chapter", id: `chapter:${book.id}`, book, last: index === manga.chapters.length - 1,
-    })) : []),
-  ]);
 }

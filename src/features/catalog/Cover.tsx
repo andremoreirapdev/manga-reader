@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { USER_AGENT } from "../../services/mangadex/source";
 import { styles } from "./styles";
 
-export function Cover({ uri }: { uri: string | null }) {
+export function Cover({ uri, large = false }: { uri: string | null; large?: boolean }) {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -13,7 +13,7 @@ export function Cover({ uri }: { uri: string | null }) {
 
   if (!uri || failed) {
     return (
-      <View style={[styles.cover, { justifyContent: "center" }]}>
+      <View style={[styles.cover, large && { width: 96, height: 140 }, { justifyContent: "center" }]}>
         <Text style={[styles.muted, { textAlign: "center" }]}>Sem capa</Text>
       </View>
     );
@@ -22,7 +22,7 @@ export function Cover({ uri }: { uri: string | null }) {
   return (
     <Image
       source={{ uri, headers: { "User-Agent": USER_AGENT } }}
-      style={styles.cover}
+      style={[styles.cover, large && { width: 96, height: 140 }]}
       contentFit="cover"
       cachePolicy="disk"
       onError={() => setFailed(true)}

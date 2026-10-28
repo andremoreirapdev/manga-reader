@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Book } from "../src/storage/database.ts";
-import { groupBooks, libraryRows, selectMangas } from "../src/features/library/grouping.ts";
+import { groupBooks, selectMangas } from "../src/features/library/grouping.ts";
 import { metadataFromDownload } from "../src/storage/book-metadata.ts";
 
 function chapter(id: string, number: string | null, extra: Partial<Book> = {}): Book {
@@ -78,15 +78,6 @@ test("busca, filtro e contagem operam sobre obras sem excluir capítulos do grup
   assert.equal(selectMangas(mangas, "", "reading", "recent").length, 1);
   assert.deepEqual(selectMangas(mangas, "", "all", "title").map((manga) => manga.title), ["Ação", "Volume 2", "Volume 10"]);
   assert.equal(selectMangas(mangas, "pt-br", "all", "recent")[0].chapters.length, 2);
-});
-
-test("lista expandida mantém chaves únicas e permite virtualizar os capítulos", () => {
-  const mangas = groupBooks([chapter("one", "1"), chapter("two", "2")]);
-  assert.equal(libraryRows(mangas, new Set()).length, 1);
-  const rows = libraryRows(mangas, new Set([mangas[0].id]));
-  assert.deepEqual(rows.map((row) => row.kind), ["manga", "chapter", "chapter"]);
-  assert.equal(new Set(rows.map((row) => row.id)).size, 3);
-  assert.equal(rows[2].kind === "chapter" && rows[2].last, true);
 });
 
 test("recupera metadados antigos somente de solicitações válidas do mesmo capítulo", () => {

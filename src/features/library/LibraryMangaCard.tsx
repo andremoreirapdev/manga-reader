@@ -7,14 +7,12 @@ import { readingPosition } from "./selectors";
 
 export function LibraryMangaCard({
   manga,
-  expanded,
   featured,
   disabled,
   onOpen,
   onOptions,
 }: {
   manga: LibraryManga;
-  expanded: boolean;
   featured: boolean;
   disabled: boolean;
   onOpen: () => void;
@@ -29,13 +27,12 @@ export function LibraryMangaCard({
   }, [manga.cover]);
 
   return (
-    <View style={[styles.card, featured && styles.featured, expanded && styles.expanded]}>
+    <View style={[styles.card, featured && styles.featured]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={manga.isSeries
-          ? `${manga.title}. ${manga.chapters.length} capítulos baixados. ${expanded ? "Ocultar" : "Ver"} capítulos.`
+          ? `${manga.title}. ${manga.chapters.length} capítulos baixados. Abrir detalhes e capítulos.`
           : `${manga.title}. Página ${position.page} de ${book.pages}. Abrir leitor.`}
-        accessibilityState={manga.isSeries ? { expanded } : undefined}
         disabled={disabled}
         onPress={onOpen}
         style={({ pressed }) => [styles.body, pressed && styles.pressed]}
@@ -99,7 +96,7 @@ export function LibraryMangaCard({
             })}
           </Text>
           {manga.isSeries && (
-            <Text style={styles.expandLabel}>{expanded ? "Ocultar capítulos" : "Ver capítulos baixados"}</Text>
+            <Text style={styles.expandLabel}>Ver detalhes e capítulos</Text>
           )}
         </View>
       </Pressable>
@@ -127,7 +124,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   featured: { borderColor: "#647b40", backgroundColor: "#182225" },
-  expanded: { marginBottom: 0, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 },
   expandLabel: { color: "#c5ef86", fontSize: 11, marginTop: 5 },
   body: {
     flex: 1,

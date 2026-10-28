@@ -16,8 +16,8 @@ import {
 import { listBooks, type Book } from "../src/storage/database";
 import { importBook, removeBook } from "../src/services/library";
 import { LibraryMangaCard } from "../src/features/library/LibraryMangaCard";
-import { LibraryChapterRow } from "../src/features/library/LibraryChapterRow";
-import { groupBooks, libraryRows, selectMangas, type LibraryManga, type LibraryRow } from "../src/features/library/grouping";
+import { groupBooks, selectMangas, type LibraryManga } from "../src/features/library/grouping";
+import { mangaSource } from "../src/providers/remote";
 import {
   LibraryActionSheet,
   type SheetAction,
@@ -40,7 +40,7 @@ export default function Library() {
     (job) => job.status === "completed",
   ).length;
   const insets = useSafeAreaInsets();
-  const list = useRef<FlatList<LibraryRow>>(null);
+  const list = useRef<FlatList<LibraryManga>>(null);
   const [books, setBooks] = useState<Book[]>([]);
   const [operation, setOperation] = useState<"import" | "remove" | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,7 +49,6 @@ export default function Library() {
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [sort, setSort] = useState<LibrarySort>("recent");
   const [sheet, setSheet] = useState<SheetState>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const busy = operation !== null;
   const mangas = useMemo(() => groupBooks(books), [books]);
   const reading = mangas.filter((manga) => manga.inProgress);
@@ -58,7 +57,6 @@ export default function Library() {
     () => selectMangas(mangas, query, filter, sort),
     [mangas, query, filter, sort],
   );
-  const rows = useMemo(() => libraryRows(visible, expanded), [visible, expanded]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -88,22 +86,16 @@ export default function Library() {
     router.push({ pathname: "/reader/[id]", params: { id: book.id } });
   }
 
-  function toggle(manga: LibraryManga) {
+  function openManga(manga: LibraryManga) {
     Keyboard.dismiss();
+    const id = manga.chapters[0].sourceMangaId;
 
-    if (!manga.isSeries) {
+    if (!manga.isSeries || !id || manga.source !== mangaSource.id) {
       open(manga.resume);
       return;
     }
 
-    setExpanded((previous) => {
-      const next = new Set(previous);
-
-      if (next.has(manga.id)) next.delete(manga.id);
-      else next.add(manga.id);
-
-      return next;
-    });
+    router.push({ pathname: "/catalog/[id]", params: { id, from: "library" } });
   }
 
   function explore() {
@@ -191,10 +183,10 @@ export default function Library() {
         ? [
             { label: "Continuar leitura", description: "Abra o capítulo com progresso salvo ou o primeiro ainda não iniciado.",
               onPress: () => { setSheet(null); open(sheet.manga.resume); } },
-            { label: "Ver capítulos baixados", description: `${sheet.manga.chapters.length} capítulos disponíveis offline.`,
+            { label: "Ver detalhes e capítulos", description: `${sheet.manga.chapters.length} capítulos disponíveis offline.`,
               onPress: () => {
-                setExpanded((previous) => new Set(previous).add(sheet.manga.id));
                 setSheet(null);
+                openManga(sheet.manga);
               } },
           ]
       : sheet?.kind === "options"
@@ -378,7 +370,7 @@ export default function Library() {
       <FlatList
         ref={list}
         style={styles.list}
-        data={rows}
+        data={visible}
         keyExtractor={(row) => row.id}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
@@ -401,17 +393,13 @@ export default function Library() {
             </View>
           ) : undefined
         }
-        renderItem={({ item }) => item.kind === "chapter" ? (
-          <LibraryChapterRow book={item.book} last={item.last} disabled={busy}
-            onOpen={() => open(item.book)} onOptions={() => options(item.book)} />
-        ) : (
+        renderItem={({ item }) => (
           <LibraryMangaCard
-            manga={item.manga}
-            expanded={expanded.has(item.manga.id)}
-            featured={item.manga.id === featured}
+            manga={item}
+            featured={item.id === featured}
             disabled={busy}
-            onOpen={() => toggle(item.manga)}
-            onOptions={() => mangaOptions(item.manga)}
+            onOpen={() => openManga(item)}
+            onOptions={() => mangaOptions(item)}
           />
         )}
         ListEmptyComponent={
