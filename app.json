@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "MangaReader",
+    "slug": "manga-reader",
+    "version": "0.1.0",
+    "scheme": "mangareader",
+    "platforms": ["android"],
+    "android": {
+      "package": "com.andre.mangareader",
+      "allowBackup": false
+    },
+    "plugins": ["expo-router", "expo-sqlite", "expo-image"]
+  }
+}

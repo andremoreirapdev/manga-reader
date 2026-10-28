@@ -1,0 +1,128 @@
+import { Directory, File, Paths } from "expo-file-system";
+import * as DocumentPicker from "expo-document-picker";
+import * as Crypto from "expo-crypto";
+import type { SQLiteDatabase } from "expo-sqlite";
+import { extractPage, indexZip, type Read, type Entry } from "./zip";
+const root = () => {
+  const d = new Directory(Paths.document, "library");
+  d.create({ idempotent: true, intermediates: true });
+  return d;
+};
+function open(file: File) {
+  const handle = file.open();
+  const read: Read = (offset, size) => {
+    if (offset < 0 || size < 0 || offset + size > file.size)
+      throw new Error("Arquivo truncado.");
+    handle.offset = offset;
+    const b = handle.readBytesSync(size);
+    if (b.length !== size) throw new Error("Leitura incompleta.");
+    return b;
+  };
+  return { read, close: () => handle.close() };
+}
+export async function importBook(db: SQLiteDatabase): Promise<boolean> {
+  const result = await DocumentPicker.getDocumentAsync({
+    type: "*/*",
+    // Mantém a URI content:// autorizada pelo seletor Android. No Expo Go,
+    // o cache do DocumentPicker pode ficar fora da pasta privada do projeto.
+    // A cópia para nossa biblioteca é feita explicitamente abaixo.
+    copyToCacheDirectory: false,
+    multiple: false,
+  });
+  if (result.canceled) return false;
+  const asset = result.assets[0],
+    source = new File(asset.uri);
+  let dir: Directory | undefined;
+  try {
+    if (!/\.cbz$/i.test(asset.name))
+      throw new Error("Selecione um arquivo .cbz.");
+    if ((asset.size ?? source.size) > 2 * 1024 ** 3)
+      throw new Error("O limite do CBZ é 2 GiB.");
+    const id = Crypto.randomUUID();
+    dir = new Directory(root(), id);
+    dir.create();
+    const archive = new File(dir, "archive.cbz");
+    // Copia do documento autorizado pelo usuário para a área privada do app.
+    // Não lê o CBZ inteiro em memória e não modifica o documento original.
+    await source.copy(archive);
+    if (archive.size > 2 * 1024 ** 3)
+      throw new Error("O limite do CBZ é 2 GiB.");
+    const reader = open(archive);
+    let entries: Entry[];
+    try {
+      entries = indexZip(reader.read, archive.size);
+      // Valida sequencialmente, liberando cada página antes da próxima.
+      for (let i = 0; i < entries.length; i++) {
+        const bytes = extractPage(reader.read, entries[i]);
+        if (i === 0)
+          await new File(
+            dir,
+            "cover." + entries[0].name.split(".").pop()!.toLowerCase(),
+          ).write(bytes);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+    } finally {
+      reader.close();
+    }
+    await new File(dir, "index.json").write(JSON.stringify(entries));
+    const cover = new File(
+      dir,
+      "cover." + entries[0].name.split(".").pop()!.toLowerCase(),
+    ).uri;
+    await db.runAsync(
+      "INSERT INTO books (id,title,pages,accessed,cover) VALUES (?,?,?,?,?)",
+      id,
+      asset.name.replace(/\.cbz$/i, ""),
+      entries.length,
+      Date.now(),
+      cover,
+    );
+    dir = undefined;
+    return true;
+  } finally {
+    if (dir?.exists) dir.delete();
+    // A origem pertence ao usuário (Downloads/Drive etc.), não ao aplicativo.
+  }
+}
+export async function pageUri(id: string, page: number): Promise<string> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Identificador inválido.");
+  const dir = new Directory(root(), id);
+  const entries = JSON.parse(
+    await new File(dir, "index.json").text(),
+  ) as Entry[];
+  const entry = entries[page];
+  if (!entry) throw new Error("Página inexistente.");
+  const cache = new Directory(Paths.cache, "reader", id);
+  cache.create({ intermediates: true, idempotent: true });
+  const file = new File(
+    cache,
+    `${page}.${entry.name.split(".").pop()!.toLowerCase()}`,
+  );
+  if (!file.exists) {
+    const reader = open(new File(dir, "archive.cbz"));
+    try {
+      await file.write(extractPage(reader.read, entry));
+    } catch (error) {
+      if (file.exists) file.delete();
+      throw error;
+    } finally {
+      reader.close();
+    }
+  }
+  // Conserva somente a página atual e suas vizinhas no cache em disco.
+  for (const child of cache.list())
+    if (
+      child instanceof File &&
+      Math.abs(Number(child.name.split(".")[0]) - page) > 1
+    )
+      child.delete();
+  return file.uri;
+}
+export async function removeBook(db: SQLiteDatabase, id: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Identificador inválido.");
+  await db.runAsync("DELETE FROM books WHERE id = ?", id);
+  const dir = new Directory(root(), id);
+  if (dir.exists) dir.delete();
+  const cache = new Directory(Paths.cache, "reader", id);
+  if (cache.exists) cache.delete();
+}
