@@ -361,6 +361,29 @@ A tela oferece **Todos**, **Baixados** e **Para baixar**, além de filtros PT-BR
 
 Teste no Expo Go com `npx expo start --go --clear`: abra um mangá da biblioteca e confira **Baixados**; entre em **Todos** ou **Para baixar**, selecione idioma e baixe outro capítulo. Confira a mudança de status e abra **Ler offline**. Volte do leitor e veja o progresso atualizado. Em modo avião, reabra a ficha de uma obra já salva e confira leitura, capa e capítulos locais. Teste também a entrada pelo catálogo e a paginação. Não limpe os dados do aplicativo. Não há nova migração do banco ou dependência nesta etapa.
 
-O leitor permanece inalterado. A próxima etapa combinada é retirar as zonas de toque da navegação por páginas e implementar gestos, deslocamento vertical e zoom. A aparência e o fluxo da nova ficha ainda precisam ser conferidos no celular.
+Essa etapa foi validada pelo usuário no celular. A refatoração seguinte do leitor está descrita abaixo.
+
+### Leitor: gestos, zoom e identidade visual
+
+O leitor usa o fundo azul escuro, botões arredondados e destaque verde da biblioteca. O cabeçalho mostra título e créditos; os controles oferecem seleção de modo, contador e barra de progresso. As zonas invisíveis de toque foram removidas: tocar na imagem não troca páginas. Os botões de navegação continuam disponíveis como alternativa acessível.
+
+No modo página, a imagem se ajusta à largura. Páginas altas começam no topo e podem ser arrastadas verticalmente até o fim. Um deslize horizontal dominante de pelo menos 55 pontos troca a página: para a direita avança, para a esquerda retorna. Com zoom acima de 100%, o arraste movimenta a imagem e não troca páginas. Gestos com múltiplos dedos e gestos cancelados também não navegam.
+
+A pinça amplia entre 100% e 400%, preservando o ponto sob os dedos dentro dos limites da imagem. Também há botões para aumentar/diminuir e restaurar o zoom e a posição. Cada página e mudança de orientação começa com zoom normal e posição inicial. Página e modo permanecem salvos no SQLite; zoom e deslocamento são temporários.
+
+No modo vertical contínuo, a lista virtualizada mantém sua rolagem habitual. O botão **Ampliar** de cada página (ou um toque longo em qualquer região da imagem) abre uma visualização com os mesmos controles de pinça, zoom e arraste. Fechar a ampliação retorna à lista na posição anterior. A visualização retém sua própria referência ao arquivo da sessão, sem extrair o capítulo inteiro nem apagar páginas permanentes. No visualizador ampliável, somente a imagem atual é exibida, sem cache de memória do `expo-image` e sem reduzir sua resolução à largura inicial; imagens com dimensões extremas ainda exigem teste de memória no dispositivo.
+
+Foram adicionados Gesture Handler, Reanimated e Worklets nas versões indicadas pelo Expo SDK instalado. A configuração padrão de Babel do Expo já ativa o plugin necessário. Não há migração de banco nesta etapa.
+
+Para testar no Android pelo Expo Go, reinicie o Metro: `npx expo start --go --clear`. Um development build antigo precisa ser recompilado para incluir as novas dependências nativas.
+
+1. Toque em diferentes regiões da imagem e confirme que a página não muda. Teste os deslizes nos dois sentidos e os limites do capítulo.
+2. Em uma imagem alta, arraste para cima/baixo e confira o topo e o rodapé completos.
+3. Use pinça e botões de zoom. Amplie um balão, arraste nos dois eixos e confirme que isso não troca páginas. Use **Restaurar**.
+4. Mude de página e gire o aparelho; confira a posição inicial e ausência de áreas inacessíveis.
+5. Troque para vertical contínuo, role, abra **Ampliar**, use o zoom e feche também pelo botão Voltar do Android.
+6. Feche/reabra o leitor e o app para conferir página/modo salvos. Repita com CBZ importado e capítulo baixado, inclusive offline.
+
+Os testes automatizados cobrem direção de leitura, rejeição de toques/diagonais/pinças como navegação, limites de deslocamento e cálculo do ponto focal. Fluidez, qualidade do zoom, consumo de memória e aparência exigem a conferência em aparelho real.
 
 Validação da tela de detalhes: TypeScript sem erros, 80 testes aprovados e bundle Android/Hermes exportado com sucesso (1.288 módulos). Os testes específicos cobrem união sem duplicatas, capítulos locais fora da página remota, idiomas e traduções, capítulos inelegíveis, remoção local e recuperação de detalhes offline mesmo com JSON de metadados corrompido. Não há lint configurado e nenhum APK novo foi gerado.
